@@ -5,6 +5,13 @@ export type InventoryTransactionType =
   | "consumption"
   | "adjustment"
   | "reversal";
+export type ReceiptStatus =
+  | "pending"
+  | "processing"
+  | "review_ready"
+  | "failed"
+  | "posted"
+  | "voided";
 
 export interface Household {
   id: string;
@@ -71,4 +78,29 @@ export interface InventoryTransaction {
   note: string | null;
   created_by: string;
   created_at: string;
+}
+
+export interface Receipt {
+  id: string;
+  household_id: string;
+  uploaded_by: string;
+  upload_id: string;
+  image_path: string;
+  original_filename: string;
+  content_type: string;
+  object_size: number | null;
+  status: ReceiptStatus;
+  merchant_id: string | null;
+  purchased_at: string | null;
+  currency: string | null;
+  subtotal: string | null;
+  discount: string | null;
+  tax: string | null;
+  total: string | null;
+  extraction_warnings: string[];
+  extraction_error: string | null;
+  extraction_error_code: string | null;
+  extraction_retryable: boolean;
+  created_at: string;
+  merchants: { name: string } | null;
 }

@@ -28,7 +28,10 @@ and a unit-aware inventory ledger.
 
 3. Copy `.env.example` to `.env.local` and replace the placeholder anon key
    with the value printed by Supabase. Keep `SUPABASE_SERVICE_ROLE_KEY`
-   server-only; never expose it through a `NEXT_PUBLIC_` variable.
+   server-only; never expose it through a `NEXT_PUBLIC_` variable. Receipt
+   extraction defaults to the deterministic `fake` adapter outside production.
+   For Gemini, set `RECEIPT_EXTRACTOR=gemini`, `GEMINI_API_KEY`, and optionally
+   `GEMINI_RECEIPT_MODEL`.
 
 4. Apply the database migration:
 
@@ -81,11 +84,14 @@ The database tests exercise cross-household RLS, owner-only invitations,
 email-bound invitation acceptance, profile visibility between members, exact
 unit conversion, append-only inventory transactions, transactional balance
 projection, idempotent manual changes, and duplicate purchase/reversal
-protection.
+protection. Receipt tests cover media validation, structured extraction,
+reconciliation warnings, duplicate-work claims, and service-role-only
+persistence.
 
 The `receipts` storage bucket is private. Object names must begin with the
-household UUID, for example
-`<household-id>/<receipt-id>/original.jpg`; storage policies use that first path
-segment to enforce household access. Email confirmation is enabled locally and
+household and uploader UUIDs, for example
+`<household-id>/<uploader-id>/<upload-id>.jpg`; storage policies bind both path
+segments to active membership and object ownership. Receipt viewing uses
+authorized, short-lived signed URLs. Email confirmation is enabled locally and
 must remain required in production so invitation acceptance proves control of
 the invited mailbox.

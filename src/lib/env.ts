@@ -8,6 +8,12 @@ const publicEnvSchema = z.object({
 const serverEnvSchema = publicEnvSchema.extend({
   NEXT_PUBLIC_SITE_URL: z.string().url().default("http://localhost:3000"),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  RECEIPT_EXTRACTOR: z.enum(["fake", "gemini"]).optional(),
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  GEMINI_RECEIPT_MODEL: z
+    .string()
+    .regex(/^[A-Za-z0-9._-]{1,100}$/)
+    .default("gemini-2.5-flash-lite"),
 });
 
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
@@ -31,5 +37,8 @@ export function getServerEnv(
     NEXT_PUBLIC_SUPABASE_ANON_KEY: env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     NEXT_PUBLIC_SITE_URL: env.NEXT_PUBLIC_SITE_URL,
     SUPABASE_SERVICE_ROLE_KEY: env.SUPABASE_SERVICE_ROLE_KEY,
+    RECEIPT_EXTRACTOR: env.RECEIPT_EXTRACTOR,
+    GEMINI_API_KEY: env.GEMINI_API_KEY,
+    GEMINI_RECEIPT_MODEL: env.GEMINI_RECEIPT_MODEL,
   });
 }
