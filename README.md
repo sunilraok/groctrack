@@ -2,8 +2,8 @@
 
 GrocTrack is a Next.js application for shared household grocery inventory. This
 foundation includes the application toolchain, environment validation, a
-tenant-isolated Supabase data model, email authentication, and household
-membership workflows.
+tenant-isolated Supabase data model, email authentication, household membership,
+and a unit-aware inventory ledger.
 
 ## Prerequisites
 
@@ -69,7 +69,9 @@ exercises the Storage API and two-connection database races. The same checks run
 in GitHub Actions for pull requests and pushes to `main`.
 
 The database tests exercise cross-household RLS, owner-only invitations,
-email-bound invitation acceptance, and profile visibility between members.
+email-bound invitation acceptance, profile visibility between members, exact
+unit conversion, append-only inventory transactions, transactional balance
+projection, and duplicate purchase/reversal protection.
 
 The `receipts` storage bucket is private. Object names must begin with the
 household UUID, for example

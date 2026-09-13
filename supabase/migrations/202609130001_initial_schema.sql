@@ -269,6 +269,10 @@ create table public.inventory_transactions (
   check (
     (transaction_type = 'reversal') = (reverses_transaction_id is not null)
   ),
+  check (
+    source_receipt_line_id is null
+    or transaction_type = 'purchase'
+  ),
   unique (household_id, id),
   foreign key (household_id, grocery_item_id)
     references public.grocery_items(household_id, id),
@@ -860,6 +864,20 @@ create trigger inventory_transaction_apply_balance
 after insert on public.inventory_transactions
 for each row execute function public.apply_inventory_balance();
 
+create or replace function public.prevent_inventory_transaction_mutation()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  raise exception 'Inventory transactions are append-only';
+end;
+$$;
+
+create trigger inventory_transactions_prevent_update_delete
+before update or delete on public.inventory_transactions
+for each row execute function public.prevent_inventory_transaction_mutation();
+
 create or replace function public.to_base_quantity(
   quantity numeric,
   unit text,
@@ -1076,6 +1094,9 @@ begin
     raise exception 'Unit does not match the grocery item';
   end if;
   if change_type = 'consumption' then
+    if entered_quantity < 0 then
+      raise exception 'Consumption quantity must be positive';
+    end if;
     base_quantity := -base_quantity;
   elsif entered_quantity < 0 then
     base_quantity := -base_quantity;

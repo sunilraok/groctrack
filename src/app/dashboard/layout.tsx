@@ -20,7 +20,7 @@ export default async function DashboardLayout({
           />
         )}
         <nav className="side-nav" aria-label="Primary navigation">
-          <Link href="/dashboard">Overview</Link>
+          <Link href="/dashboard">Inventory</Link>
           {current && <Link href="/dashboard/settings">Household</Link>}
         </nav>
         <form action={signOut} className="sidebar-footer">
