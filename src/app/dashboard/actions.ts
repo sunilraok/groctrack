@@ -19,6 +19,7 @@ import {
   isInventoryUnit,
   unitDefinitions,
 } from "@/lib/units";
+import Decimal from "decimal.js";
 
 export type FormState<T = undefined> = ActionResult<T> | null;
 
@@ -153,7 +154,10 @@ export async function recordInventoryChange(
   formData: FormData,
 ): Promise<FormState> {
   const parsed = inventoryChangeSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success || parsed.data.quantity === "0") {
+  if (
+    !parsed.success ||
+    new Decimal(parsed.data.quantity).isZero()
+  ) {
     return { ok: false, error: "Enter a valid non-zero quantity and unit." };
   }
   if (!isInventoryUnit(parsed.data.unit)) {
@@ -174,7 +178,7 @@ export async function recordInventoryChange(
       .eq("id", parsed.data.groceryItemId)
       .eq("household_id", current.household_id)
       .single();
-    if (itemError) throw itemError;
+    if (itemError) throw new Error(itemError.message);
     if (unitDefinitions[parsed.data.unit].dimension !== item.unit_dimension) {
       return { ok: false, error: "That unit is not compatible with this item." };
     }
@@ -187,7 +191,7 @@ export async function recordInventoryChange(
       client_operation_id: parsed.data.operationId,
       change_note: parsed.data.note || null,
     });
-    if (error) throw error;
+    if (error) throw new Error(error.message);
     revalidatePath("/dashboard");
     revalidatePath(`/dashboard/items/${parsed.data.groceryItemId}`);
     return { ok: true, data: undefined };
@@ -219,7 +223,7 @@ export async function reverseInventoryTransaction(
       .eq("grocery_item_id", parsed.data.groceryItemId)
       .eq("household_id", current.household_id)
       .single();
-    if (lookupError) throw lookupError;
+    if (lookupError) throw new Error(lookupError.message);
 
     const { error } = await supabase.rpc("reverse_inventory_transaction", {
       target_transaction_id: transaction.id,
@@ -232,7 +236,7 @@ export async function reverseInventoryTransaction(
       ) {
         return { ok: false, error: "That transaction was already reversed." };
       }
-      throw error;
+      throw new Error(error.message);
     }
     revalidatePath("/dashboard");
     revalidatePath(`/dashboard/items/${parsed.data.groceryItemId}`);

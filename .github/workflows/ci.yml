@@ -68,6 +68,16 @@ jobs:
       - name: Start local Supabase
         run: supabase start
 
+      - name: Install PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --yes postgresql-client
+          fi
+
+      - name: Test inventory migration upgrade
+        run: ./scripts/test-inventory-upgrade.sh
+
       - name: Reset database from migrations
         run: supabase db reset
 
@@ -79,6 +89,9 @@ jobs:
 
       - name: Run Storage and concurrency integration tests
         run: bash supabase/tests/integration.sh
+
+      - name: Test concurrent inventory operations
+        run: ./scripts/test-inventory-concurrency.sh
 
       - name: Stop local Supabase
         if: always()

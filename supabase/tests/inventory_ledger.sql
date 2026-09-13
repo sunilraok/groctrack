@@ -1,6 +1,6 @@
 begin;
 
-select plan(50);
+select plan(65);
 
 insert into auth.users (
   instance_id,
@@ -59,6 +59,8 @@ create temporary table inventory_test_ids (
   household_id uuid,
   adjustment_id uuid
 );
+
+grant select, insert, update on table inventory_test_ids to authenticated;
 
 select is(public.to_base_quantity(1.25, 'kg', 'mass'), 1250::numeric, 'kg converts exactly to grams');
 select is(public.to_base_quantity(2, 'dozen', 'count'), 24::numeric, 'dozen converts exactly to each');
@@ -251,6 +253,27 @@ select lives_ok(
     'Baking'
   )$$,
   'a member can record consumption'
+);
+
+select results_eq(
+  $$select
+      transaction_type::text,
+      quantity_base,
+      original_quantity,
+      original_unit,
+      created_by,
+      operation_id
+    from public.inventory_transactions
+    where operation_id = '88888888-8888-4888-8888-888888888888'$$,
+  $$values (
+      'consumption',
+      -250::numeric,
+      250::numeric,
+      'g'::text,
+      '11111111-1111-4111-8111-111111111111'::uuid,
+      '88888888-8888-4888-8888-888888888888'::uuid
+    )$$,
+  'consumption stores the exact signed quantity, original unit, actor, and operation ID'
 );
 
 select is(
@@ -447,6 +470,15 @@ select throws_ok(
 );
 
 select throws_ok(
+  $$update public.grocery_items
+    set household_id = gen_random_uuid()
+    where id = '33333333-3333-4333-8333-333333333333'$$,
+  'P0001',
+  'Grocery item household and creator are immutable',
+  'a member cannot move a grocery to another household'
+);
+
+select throws_ok(
   $$insert into public.grocery_items (
       household_id,
       name,
@@ -482,6 +514,30 @@ select is(
   (select quantity_base from public.inventory_balances where grocery_item_id = '33333333-3333-4333-8333-333333333333'),
   -250::numeric,
   'a reversal applies the exact inverse to the balance'
+);
+
+select results_eq(
+  $$select
+      reversal.transaction_type::text,
+      reversal.quantity_base,
+      reversal.original_quantity,
+      reversal.original_unit,
+      reversal.created_by,
+      reversal.reverses_transaction_id,
+      reversal.operation_id
+    from public.inventory_transactions reversal
+    join inventory_test_ids ids
+      on reversal.reverses_transaction_id = ids.adjustment_id$$,
+  $$select
+      'reversal'::text,
+      -1250::numeric,
+      null::numeric,
+      null::text,
+      '11111111-1111-4111-8111-111111111111'::uuid,
+      adjustment_id,
+      null::uuid
+    from inventory_test_ids$$,
+  'reversal stores the exact inverse, actor, and source transaction'
 );
 
 select throws_ok(
@@ -615,6 +671,181 @@ select is(
   ),
   750::numeric,
   'receipt posting updates the projected balance in the same transaction'
+);
+
+select results_eq(
+  $$select
+      transaction_type::text,
+      quantity_base,
+      original_quantity,
+      original_unit,
+      created_by,
+      source_receipt_line_id,
+      operation_id
+    from public.inventory_transactions
+    where source_receipt_line_id = '66666666-6666-4666-8666-666666666666'$$,
+  $$values (
+      'purchase',
+      1000::numeric,
+      1::numeric,
+      'kg'::text,
+      '11111111-1111-4111-8111-111111111111'::uuid,
+      '66666666-6666-4666-8666-666666666666'::uuid,
+      null::uuid
+    )$$,
+  'receipt posting stores exact purchase attribution and source quantities'
+);
+
+select results_eq(
+  $$select
+      transaction_type::text,
+      quantity_base,
+      original_quantity,
+      original_unit,
+      created_by,
+      source_receipt_line_id,
+      operation_id
+    from public.inventory_transaction_history
+    where source_receipt_line_id = '66666666-6666-4666-8666-666666666666'$$,
+  $$values (
+      'purchase',
+      '1000.000000'::text,
+      '1.000000'::text,
+      'kg'::text,
+      '11111111-1111-4111-8111-111111111111'::uuid,
+      '66666666-6666-4666-8666-666666666666'::uuid,
+      null::uuid
+    )$$,
+  'authorized history exposes the exact persisted purchase audit row'
+);
+
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}',
+  true
+);
+
+select is(
+  (select count(*) from public.inventory_stock),
+  2::bigint,
+  'an ordinary member can read household stock'
+);
+
+select is(
+  (select count(*) from public.inventory_transaction_history),
+  5::bigint,
+  'an ordinary member can read household history'
+);
+
+select lives_ok(
+  $$select public.record_inventory_change(
+    '33333333-3333-4333-8333-333333333333',
+    'consumption',
+    1,
+    'g',
+    'bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb',
+    'Member consumption'
+  )$$,
+  'an ordinary member can record compatible-unit consumption'
+);
+
+select results_eq(
+  $$select
+      transaction_type::text,
+      quantity_base,
+      original_quantity,
+      original_unit,
+      created_by,
+      operation_id
+    from public.inventory_transaction_history
+    where operation_id = 'bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb'$$,
+  $$values (
+      'consumption',
+      '-1.000000'::text,
+      '1.000000'::text,
+      'g'::text,
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd'::uuid,
+      'bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb'::uuid
+    )$$,
+  'member consumption history preserves its exact signed audit data'
+);
+
+select lives_ok(
+  $$select public.record_inventory_change(
+    '33333333-3333-4333-8333-333333333333',
+    'adjustment',
+    2,
+    'g',
+    'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb',
+    'Member adjustment'
+  )$$,
+  'an ordinary member can record an adjustment'
+);
+
+select is(
+  (
+    select quantity_base
+    from public.inventory_balances
+    where grocery_item_id = '33333333-3333-4333-8333-333333333333'
+  ),
+  751::numeric,
+  'ordinary member consumption and adjustment update the balance once'
+);
+
+select lives_ok(
+  $$select public.reverse_inventory_transaction(
+    (
+      select id
+      from public.inventory_transactions
+      where operation_id = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb'
+    ),
+    'Member reversal'
+  )$$,
+  'an ordinary member can reverse their adjustment'
+);
+
+select is(
+  (
+    select quantity_base
+    from public.inventory_balances
+    where grocery_item_id = '33333333-3333-4333-8333-333333333333'
+  ),
+  749::numeric,
+  'the member reversal applies exactly once'
+);
+
+select results_eq(
+  $$select
+      reversal.transaction_type::text,
+      reversal.quantity_base,
+      reversal.created_by,
+      reversal.reverses_transaction_id
+    from public.inventory_transaction_history reversal
+    join public.inventory_transactions adjustment
+      on adjustment.id = reversal.reverses_transaction_id
+    where adjustment.operation_id = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb'$$,
+  $$select
+      'reversal'::text,
+      '-2.000000'::text,
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd'::uuid,
+      id
+    from public.inventory_transactions
+    where operation_id = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb'$$,
+  'member reversal history preserves the exact actor, sign, and source ID'
+);
+
+select throws_ok(
+  $$select public.record_inventory_change(
+    '33333333-3333-4333-8333-333333333333',
+    'consumption',
+    1,
+    'ml',
+    'bbbbbbbb-3333-4333-8333-bbbbbbbbbbbb',
+    null
+  )$$,
+  'P0001',
+  'Unit does not match the grocery item',
+  'an ordinary member cannot use an incompatible unit'
 );
 
 reset role;

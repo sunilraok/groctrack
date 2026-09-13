@@ -34,7 +34,9 @@ vi.mock("@/lib/env", () => ({
 import {
   createHousehold,
   createInvitation,
+  recordInventoryChange,
   removeHouseholdMember,
+  reverseInventoryTransaction,
   switchHousehold,
 } from "./actions";
 
@@ -61,6 +63,47 @@ function membership(
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     },
+  };
+}
+
+const groceryItemId = "33333333-3333-4333-8333-333333333333";
+const transactionId = "44444444-4444-4444-8444-444444444444";
+const operationId = "55555555-5555-4555-8555-555555555555";
+
+function inventoryChangeData(overrides: Record<string, string> = {}) {
+  return form({
+    groceryItemId,
+    operationId,
+    type: "consumption",
+    quantity: "1",
+    unit: "g",
+    note: "",
+    ...overrides,
+  });
+}
+
+function createInventorySupabase({
+  dimension = "mass",
+  rpcError = null,
+}: {
+  dimension?: "mass" | "volume" | "count";
+  rpcError?: { code?: string; message: string } | null;
+} = {}) {
+  const single = vi.fn().mockResolvedValue({
+    data: { id: transactionId, unit_dimension: dimension },
+    error: null,
+  });
+  const query = {
+    select: vi.fn(),
+    eq: vi.fn(),
+    single,
+  };
+  query.select.mockReturnValue(query);
+  query.eq.mockReturnValue(query);
+  const rpc = vi.fn().mockResolvedValue({ error: rpcError });
+  return {
+    client: { from: vi.fn().mockReturnValue(query), rpc },
+    rpc,
   };
 }
 
@@ -254,6 +297,117 @@ describe("household server actions", () => {
     expect(rpc).toHaveBeenCalledWith("revoke_household_member", {
       target_household_id: HOME_ID,
       target_user_id: MEMBER_ID,
+    });
+  });
+});
+
+describe("inventory server actions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it.each(["0", "0.0", "-0", "-0.000000"])(
+    "rejects decimal zero variant %s before household lookup",
+    async (quantity) => {
+      const result = await recordInventoryChange(
+        null,
+        inventoryChangeData({ quantity }),
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: "Enter a valid non-zero quantity and unit.",
+      });
+      expect(mocks.requireHousehold).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["-1", "1.0000001", "1000000000000"])(
+    "rejects invalid consumption input %s before household lookup",
+    async (quantity) => {
+      const result = await recordInventoryChange(
+        null,
+        inventoryChangeData({ quantity }),
+      );
+
+      expect(result?.ok).toBe(false);
+      expect(mocks.requireHousehold).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a unit that is incompatible with the stored item dimension", async () => {
+    const { client, rpc } = createInventorySupabase({ dimension: "volume" });
+    mocks.requireHousehold.mockResolvedValue({
+      supabase: client,
+      current: { household_id: HOME_ID },
+    });
+
+    const result = await recordInventoryChange(null, inventoryChangeData());
+
+    expect(result).toEqual({
+      ok: false,
+      error: "That unit is not compatible with this item.",
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("surfaces RPC failures without reporting success", async () => {
+    const { client } = createInventorySupabase({
+      rpcError: { message: "database rejected change" },
+    });
+    mocks.requireHousehold.mockResolvedValue({
+      supabase: client,
+      current: { household_id: HOME_ID },
+    });
+
+    const result = await recordInventoryChange(null, inventoryChangeData());
+
+    expect(result).toEqual({ ok: false, error: "database rejected change" });
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("passes a valid negative adjustment and operation ID to the RPC", async () => {
+    const { client, rpc } = createInventorySupabase();
+    mocks.requireHousehold.mockResolvedValue({
+      supabase: client,
+      current: { household_id: HOME_ID },
+    });
+
+    const result = await recordInventoryChange(
+      null,
+      inventoryChangeData({ type: "adjustment", quantity: "-1.250000" }),
+    );
+
+    expect(result?.ok).toBe(true);
+    expect(rpc).toHaveBeenCalledWith("record_inventory_change", {
+      target_grocery_item_id: groceryItemId,
+      change_type: "adjustment",
+      entered_quantity: "-1.250000",
+      entered_unit: "g",
+      client_operation_id: operationId,
+      change_note: null,
+    });
+  });
+
+  it("maps duplicate reversal errors to an explicit user message", async () => {
+    const { client, rpc } = createInventorySupabase();
+    rpc.mockResolvedValue({
+      error: { message: "Inventory transaction is already reversed" },
+    });
+    mocks.requireHousehold.mockResolvedValue({
+      supabase: client,
+      current: { household_id: HOME_ID },
+    });
+
+    const result = await reverseInventoryTransaction(
+      null,
+      form({ groceryItemId, transactionId }),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: "That transaction was already reversed.",
     });
   });
 });
