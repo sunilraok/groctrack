@@ -79,11 +79,11 @@ Aliases are scoped to both household and merchant. Changing a mapping does not r
 Implementation is split into dependency-ordered GitHub issues and pull requests:
 
 1. **#1 — Bootstrap Next.js, Supabase, and secure household data model**
-2. **#2 — Add authentication and household membership workflows**
-3. **#3 — Implement unit-aware inventory ledger and stock screens**
-4. **#4 — Add private receipt upload and structured extraction adapters**
-5. **#5 — Build receipt review, grocery alias learning, and atomic posting**
-6. **#6 — Complete installable PWA UX, evaluation harness, and release checks**
+2. **#5 — Add authentication and household membership workflows**
+3. **#4 — Implement unit-aware inventory ledger and stock screens**
+4. **#2 — Add private receipt upload and structured extraction adapters**
+5. **#6 — Build receipt review, grocery alias learning, and atomic posting**
+6. **#3 — Complete installable PWA UX, evaluation harness, and release checks**
 
 Each pull request targets the branch immediately below it. This keeps each review focused while preserving a complete bottom-to-top dependency chain.
 
