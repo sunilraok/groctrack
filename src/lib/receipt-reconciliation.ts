@@ -26,7 +26,7 @@ export function reconcileReceipt(extracted: ExtractedReceipt): ReconciledReceipt
 
   const lineTotals = extracted.lines
     .map((line) => line.line_total)
-    .filter((value): value is number => value !== null);
+    .filter((value): value is string => value !== null);
   if (lineTotals.length === extracted.lines.length && lineTotals.length > 0) {
     const sum = lineTotals.reduce(
       (total, value) => total.plus(value),

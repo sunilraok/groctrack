@@ -1,8 +1,17 @@
 import { z } from "zod";
+import Decimal from "decimal.js";
 
 const nullableText = z.string().trim().max(500).nullable();
-const nullableAmount = z.number().finite().min(0).max(9999999999.99).nullable();
-const nullableQuantity = z.number().finite().positive().max(999999999999).nullable();
+export const moneyPattern = "^(?:0|[1-9][0-9]{0,9})(?:\\.[0-9]{1,2})?$";
+export const quantityPattern =
+  "^(?:0|[1-9][0-9]{0,11})(?:\\.[0-9]{1,6})?$";
+const moneySchema = z.string().regex(new RegExp(moneyPattern));
+const quantitySchema = z
+  .string()
+  .regex(new RegExp(quantityPattern))
+  .refine((value) => new Decimal(value).greaterThan(0));
+const nullableAmount = moneySchema.nullable();
+const nullableQuantity = quantitySchema.nullable();
 
 export const extractedReceiptSchema = z
   .object({
@@ -93,10 +102,10 @@ export const receiptJsonSchema = {
       type: ["string", "null"],
       pattern: "^[A-Z]{3}$",
     },
-    subtotal: { type: ["number", "null"] },
-    discount: { type: ["number", "null"] },
-    tax: { type: ["number", "null"] },
-    total: { type: ["number", "null"] },
+    subtotal: { type: ["string", "null"], pattern: moneyPattern },
+    discount: { type: ["string", "null"], pattern: moneyPattern },
+    tax: { type: ["string", "null"], pattern: moneyPattern },
+    total: { type: ["string", "null"], pattern: moneyPattern },
     lines: {
       type: "array",
       maxItems: 500,
@@ -119,13 +128,13 @@ export const receiptJsonSchema = {
           raw_description: { type: "string" },
           interpreted_description: { type: ["string", "null"] },
           product_code: { type: ["string", "null"] },
-          quantity: { type: ["number", "null"] },
+          quantity: { type: ["string", "null"], pattern: quantityPattern },
           unit: { type: ["string", "null"] },
-          weight: { type: ["number", "null"] },
+          weight: { type: ["string", "null"], pattern: quantityPattern },
           weight_unit: { type: ["string", "null"] },
-          unit_price: { type: ["number", "null"] },
-          line_total: { type: ["number", "null"] },
-          discount: { type: ["number", "null"] },
+          unit_price: { type: ["string", "null"], pattern: moneyPattern },
+          line_total: { type: ["string", "null"], pattern: moneyPattern },
+          discount: { type: ["string", "null"], pattern: moneyPattern },
         },
       },
     },

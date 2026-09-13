@@ -49,15 +49,51 @@ describe("GeminiReceiptExtractor", () => {
     expect(result.receipt).toEqual(validReceipt);
   });
 
-  it("classifies retryable rate limits without exposing provider payloads", async () => {
+  it("classifies provider-reported quota exhaustion even with retry headers", async () => {
     const extractor = new GeminiReceiptExtractor({
       apiKey: "secret",
       model: "gemini-test",
       fetch: async () =>
-        new Response("sensitive provider detail", {
+        new Response(
+          JSON.stringify({
+            error: {
+              status: "RESOURCE_EXHAUSTED",
+              details: [{ reason: "DAILY_QUOTA_EXCEEDED" }],
+            },
+          }),
+          {
           status: 429,
           headers: { "retry-after": "10" },
-        }),
+          },
+        ),
+    });
+
+    await expect(
+      extractor.extract({
+        bytes: new Uint8Array([0xff, 0xd8, 0xff]),
+        contentType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({
+      kind: "quota",
+      retryable: true,
+      message: "Extraction quota is exhausted.",
+    } satisfies Partial<ReceiptExtractionError>);
+  });
+
+  it("classifies provider-reported rate limits without relying on headers", async () => {
+    const extractor = new GeminiReceiptExtractor({
+      apiKey: "secret",
+      model: "gemini-test",
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              status: "RESOURCE_EXHAUSTED",
+              details: [{ reason: "RATE_LIMIT_EXCEEDED" }],
+            },
+          }),
+          { status: 429 },
+        ),
     });
 
     await expect(
@@ -70,6 +106,80 @@ describe("GeminiReceiptExtractor", () => {
       retryable: true,
       message: "Extraction is rate limited.",
     } satisfies Partial<ReceiptExtractionError>);
+  });
+
+  it("uses a safe transient fallback for unknown bounded 429 metadata", async () => {
+    const extractor = new GeminiReceiptExtractor({
+      apiKey: "secret",
+      model: "gemini-test",
+      fetch: async () =>
+        new Response(
+          JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED" } }),
+          { status: 429 },
+        ),
+    });
+    await expect(
+      extractor.extract({
+        bytes: new Uint8Array([0xff, 0xd8, 0xff]),
+        contentType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({ kind: "transient", retryable: true });
+  });
+
+  it("sends PDFs through the native inline-data path", async () => {
+    let body: string | undefined;
+    const extractor = new GeminiReceiptExtractor({
+      apiKey: "secret",
+      model: "gemini-test",
+      fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        body = String(init?.body);
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: JSON.stringify(validReceipt) }] } }],
+          }),
+        );
+      }) as typeof fetch,
+    });
+    await extractor.extract({
+      bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+      contentType: "application/pdf",
+    });
+    expect(JSON.parse(body ?? "{}")).toMatchObject({
+      contents: [
+        {
+          parts: [
+            expect.anything(),
+            { inlineData: { mimeType: "application/pdf" } },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("rejects malformed and oversized provider envelopes", async () => {
+    const malformed = new GeminiReceiptExtractor({
+      apiKey: "secret",
+      model: "gemini-test",
+      fetch: async () => new Response(JSON.stringify({ candidates: [] })),
+    });
+    await expect(
+      malformed.extract({
+        bytes: new Uint8Array([1]),
+        contentType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({ kind: "transient" });
+
+    const oversized = new GeminiReceiptExtractor({
+      apiKey: "secret",
+      model: "gemini-test",
+      fetch: async () => new Response("x".repeat(2 * 1024 * 1024 + 1)),
+    });
+    await expect(
+      oversized.extract({
+        bytes: new Uint8Array([1]),
+        contentType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({ kind: "transient" });
   });
 
   it("rejects model strings that could control the provider URL", () => {

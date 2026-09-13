@@ -602,6 +602,7 @@ insert into public.receipts (
   id,
   household_id,
   uploaded_by,
+  upload_id,
   merchant_id,
   image_path,
   original_filename,
@@ -612,8 +613,9 @@ select
   '55555555-5555-4555-8555-555555555555',
   household_id,
   '11111111-1111-4111-8111-111111111111',
+  '57777777-7777-4777-8777-777777777777',
   '44444444-4444-4444-8444-444444444444',
-  household_id::text || '/receipt.jpg',
+  household_id::text || '/11111111-1111-4111-8111-111111111111/57777777-7777-4777-8777-777777777777.jpg',
   'receipt.jpg',
   'image/jpeg',
   'review_ready'

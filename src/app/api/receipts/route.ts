@@ -18,6 +18,56 @@ import type { HouseholdMembership } from "@/types/database";
 const uploadSchema = z.object({ uploadId: z.string().uuid() });
 const MAX_MULTIPART_BYTES = MAX_RECEIPT_BYTES + 64 * 1024;
 
+interface ExistingReceipt {
+  id: string;
+  content_type: string;
+  object_size: number | null;
+  content_sha256: string | null;
+  original_filename: string;
+  status: string;
+  extraction_retryable: boolean;
+}
+
+function matchesUpload(
+  receipt: ExistingReceipt,
+  file: File,
+  validated: Awaited<ReturnType<typeof validateReceiptFile>>,
+) {
+  return (
+    receipt.content_type === validated.contentType &&
+    receipt.object_size === file.size &&
+    receipt.content_sha256 === validated.sha256 &&
+    receipt.original_filename === validated.originalFilename
+  );
+}
+
+async function respondForExisting(
+  receipt: ExistingReceipt,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+) {
+  if (
+    receipt.status === "pending" ||
+    receipt.status === "processing" ||
+    (receipt.status === "failed" && receipt.extraction_retryable)
+  ) {
+    try {
+      const extraction = await processReceipt({
+        admin: createAdminClient(),
+        authorizedClient: supabase,
+        extractor: createReceiptExtractor(),
+        receiptId: receipt.id,
+      });
+      return NextResponse.json({ receiptId: receipt.id, ...extraction });
+    } catch {
+      return NextResponse.json(
+        { error: "Receipt extraction is not configured." },
+        { status: 503 },
+      );
+    }
+  }
+  return NextResponse.json({ receiptId: receipt.id, status: receipt.status });
+}
+
 export async function POST(request: Request) {
   const declaredLength = Number(request.headers.get("content-length"));
   if (
@@ -89,37 +139,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unable to inspect receipt upload." }, { status: 500 });
   }
   if (existing) {
-    const sameUpload =
-      existing.content_type === validated.contentType &&
-      existing.object_size === file.size &&
-      existing.content_sha256 === validated.sha256 &&
-      existing.original_filename === validated.originalFilename;
-    if (!sameUpload) {
+    if (!matchesUpload(existing, file, validated)) {
       return NextResponse.json(
         { error: "This upload ID was already used for a different receipt." },
         { status: 409 },
       );
     }
-    if (
-      existing.status === "pending" ||
-      (existing.status === "failed" && existing.extraction_retryable)
-    ) {
-      try {
-        const extraction = await processReceipt({
-          admin: createAdminClient(),
-          authorizedClient: supabase,
-          extractor: createReceiptExtractor(),
-          receiptId: existing.id,
-        });
-        return NextResponse.json({ receiptId: existing.id, ...extraction });
-      } catch {
-        return NextResponse.json(
-          { error: "Receipt extraction is not configured." },
-          { status: 503 },
-        );
-      }
-    }
-    return NextResponse.json({ receiptId: existing.id, status: existing.status });
+    return respondForExisting(existing, supabase);
   }
 
   let admin;
@@ -145,6 +171,7 @@ export async function POST(request: Request) {
       contentType: validated.contentType,
       upsert: false,
     });
+  const createdObject = !uploadError;
   if (uploadError) {
     const { data: ownedExistingObject } = await supabase.rpc(
       "owns_receipt_object",
@@ -176,7 +203,11 @@ export async function POST(request: Request) {
     { object_name: objectPath },
   );
   if (ownershipError || !ownsObject) {
-    await admin.storage.from("receipts").remove([objectPath]);
+    if (createdObject) {
+      await admin.rpc("cleanup_unlinked_receipt_object", {
+        object_name: objectPath,
+      });
+    }
     return NextResponse.json({ error: "Unable to verify receipt ownership." }, { status: 500 });
   }
 
@@ -194,7 +225,23 @@ export async function POST(request: Request) {
     status: "pending",
   });
   if (insertError) {
-    await admin.storage.from("receipts").remove([objectPath]);
+    const { data: winner } = await supabase
+      .from("receipts")
+      .select(
+        "id, content_type, object_size, content_sha256, original_filename, status, extraction_retryable",
+      )
+      .eq("household_id", current.household_id)
+      .eq("uploaded_by", user.id)
+      .eq("upload_id", parsed.data.uploadId)
+      .maybeSingle();
+    if (winner && matchesUpload(winner, file, validated)) {
+      return respondForExisting(winner, supabase);
+    }
+    if (createdObject) {
+      await admin.rpc("cleanup_unlinked_receipt_object", {
+        object_name: objectPath,
+      });
+    }
     return NextResponse.json({ error: "Unable to register receipt." }, { status: 500 });
   }
 

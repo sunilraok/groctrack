@@ -79,7 +79,13 @@ export function ReceiptUploadForm() {
   );
 }
 
-export function RetryExtractionButton({ receiptId }: { receiptId: string }) {
+export function RetryExtractionButton({
+  receiptId,
+  processing = false,
+}: {
+  receiptId: string;
+  processing?: boolean;
+}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,7 +112,11 @@ export function RetryExtractionButton({ receiptId }: { receiptId: string }) {
   return (
     <div className="receipt-retry">
       <button className="button ghost small" disabled={pending} onClick={retry} type="button">
-        {pending ? "Retrying..." : "Retry extraction"}
+        {pending
+          ? "Checking..."
+          : processing
+            ? "Check or recover extraction"
+            : "Retry extraction"}
       </button>
       {error && <span className="form-error">{error}</span>}
     </div>

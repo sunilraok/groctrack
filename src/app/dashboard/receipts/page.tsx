@@ -75,6 +75,9 @@ export default async function ReceiptsPage() {
                   {receipt.status === "failed" && receipt.extraction_retryable && (
                     <RetryExtractionButton receiptId={receipt.id} />
                   )}
+                  {receipt.status === "processing" && (
+                    <RetryExtractionButton processing receiptId={receipt.id} />
+                  )}
                 </article>
               ))}
             </div>

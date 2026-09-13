@@ -113,6 +113,7 @@ insert into public.receipts (
   id,
   household_id,
   uploaded_by,
+  upload_id,
   merchant_id,
   image_path,
   original_filename,
@@ -123,8 +124,9 @@ values (
   '50000000-0000-0000-0000-000000000001',
   '20000000-0000-0000-0000-000000000001',
   '10000000-0000-0000-0000-000000000002',
+  '51000000-0000-4000-8000-000000000001',
   '30000000-0000-0000-0000-000000000001',
-  '20000000-0000-0000-0000-000000000001/receipt.jpg',
+  '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000002/51000000-0000-4000-8000-000000000001.jpg',
   'receipt.jpg',
   'image/jpeg',
   'review_ready'
@@ -134,6 +136,7 @@ insert into public.receipts (
   id,
   household_id,
   uploaded_by,
+  upload_id,
   image_path,
   original_filename,
   content_type
@@ -142,7 +145,8 @@ values (
   '50000000-0000-0000-0000-000000000003',
   '20000000-0000-0000-0000-000000000001',
   '10000000-0000-0000-0000-000000000001',
-  '20000000-0000-0000-0000-000000000001/owner-upload.jpg',
+  '51000000-0000-4000-8000-000000000003',
+  '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/51000000-0000-4000-8000-000000000003.jpg',
   'owner-upload.jpg',
   'image/jpeg'
 );
@@ -151,6 +155,7 @@ insert into public.receipts (
   id,
   household_id,
   uploaded_by,
+  upload_id,
   merchant_id,
   image_path,
   original_filename,
@@ -161,8 +166,9 @@ values (
   '50000000-0000-0000-0000-000000000002',
   '20000000-0000-0000-0000-000000000001',
   '10000000-0000-0000-0000-000000000002',
+  '51000000-0000-4000-8000-000000000002',
   '30000000-0000-0000-0000-000000000001',
-  '20000000-0000-0000-0000-000000000001/nan-receipt.jpg',
+  '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000002/51000000-0000-4000-8000-000000000002.jpg',
   'nan-receipt.jpg',
   'image/jpeg',
   'review_ready'
@@ -193,17 +199,17 @@ insert into storage.objects (bucket_id, name, owner_id)
 values
   (
     'receipts',
-    '20000000-0000-0000-0000-000000000001/receipt.jpg',
+    '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000002/51000000-0000-4000-8000-000000000001.jpg',
     '10000000-0000-0000-0000-000000000002'
   ),
   (
     'receipts',
-    '20000000-0000-0000-0000-000000000001/owner-upload.jpg',
+    '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/51000000-0000-4000-8000-000000000003.jpg',
     '10000000-0000-0000-0000-000000000001'
   ),
   (
     'receipts',
-    '20000000-0000-0000-0000-000000000001/orphan-owner-upload.jpg',
+    '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/52000000-0000-4000-8000-000000000001.jpg',
     '10000000-0000-0000-0000-000000000001'
   );
 
@@ -378,9 +384,9 @@ select throws_ok(
   $$update public.receipts
     set uploaded_by = '10000000-0000-0000-0000-000000000002'
     where id = '50000000-0000-0000-0000-000000000003'$$,
-  'P0001',
-  'Receipt upload identity and provenance are immutable',
-  'a member cannot claim another member receipt upload'
+  '42501',
+  null,
+  'authenticated members cannot directly update receipt provenance'
 );
 select throws_ok(
   $$insert into public.receipts (
@@ -393,7 +399,7 @@ select throws_ok(
     values (
       '20000000-0000-0000-0000-000000000001',
       '10000000-0000-0000-0000-000000000002',
-      '20000000-0000-0000-0000-000000000001/orphan-owner-upload.jpg',
+      '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/52000000-0000-4000-8000-000000000001.jpg',
       'orphan-owner-upload.jpg',
       'image/jpeg'
     )$$,
@@ -401,16 +407,30 @@ select throws_ok(
   null,
   'a member cannot claim another member orphaned storage object'
 );
-select ok(
-  not public.can_delete_receipt_object(
-    '20000000-0000-0000-0000-000000000001/owner-upload.jpg'
+select is(
+  (
+    with deleted as (
+      delete from storage.objects
+      where bucket_id = 'receipts'
+        and name = '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/51000000-0000-4000-8000-000000000003.jpg'
+      returning name
+    )
+    select count(*) from deleted
   ),
+  0::bigint,
   'a member cannot delete another uploader receipt object'
 );
-select ok(
-  not public.can_delete_receipt_object(
-    '20000000-0000-0000-0000-000000000001/orphan-owner-upload.jpg'
+select is(
+  (
+    with deleted as (
+      delete from storage.objects
+      where bucket_id = 'receipts'
+        and name = '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/52000000-0000-4000-8000-000000000001.jpg'
+      returning name
+    )
+    select count(*) from deleted
   ),
+  0::bigint,
   'a member cannot delete another uploader orphaned storage object'
 );
 
@@ -426,15 +446,16 @@ select lives_ok(
   $$insert into storage.objects (bucket_id, name, owner_id)
     values (
       'receipts',
-      '20000000-0000-0000-0000-000000000001/pending.jpg',
+      '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/53000000-0000-4000-8000-000000000001.jpg',
       '10000000-0000-0000-0000-000000000001'
     )$$,
   'an active household member can upload an object they own'
 );
-select lives_ok(
+select throws_ok(
   $$insert into public.receipts (
       household_id,
       uploaded_by,
+      upload_id,
       image_path,
       original_filename,
       content_type
@@ -442,16 +463,54 @@ select lives_ok(
     values (
       '20000000-0000-0000-0000-000000000001',
       '10000000-0000-0000-0000-000000000001',
-      '20000000-0000-0000-0000-000000000001/pending.jpg',
+      '53000000-0000-4000-8000-000000000001',
+      '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/53000000-0000-4000-8000-000000000001.jpg',
       'pending.jpg',
       'image/jpeg'
     )$$,
-  'an active member can create a receipt in the exact initial state'
+  '42501',
+  null,
+  'authenticated members cannot bypass server receipt validation'
 );
-select ok(
-  public.can_delete_receipt_object(
-    '20000000-0000-0000-0000-000000000001/pending.jpg'
+
+reset role;
+insert into public.receipts (
+  household_id,
+  uploaded_by,
+  upload_id,
+  image_path,
+  original_filename,
+  content_type,
+  object_size,
+  content_sha256
+)
+values (
+  '20000000-0000-0000-0000-000000000001',
+  '10000000-0000-0000-0000-000000000001',
+  '53000000-0000-4000-8000-000000000001',
+  '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/53000000-0000-4000-8000-000000000001.jpg',
+  'pending.jpg',
+  'image/jpeg',
+  4,
+  repeat('a', 64)
+);
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
+select is(
+  (
+    with deleted as (
+      delete from storage.objects
+      where bucket_id = 'receipts'
+        and name = '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/53000000-0000-4000-8000-000000000001.jpg'
+      returning name
+    )
+    select count(*) from deleted
   ),
+  1::bigint,
   'the owning uploader can delete their unposted receipt object'
 );
 select throws_ok(

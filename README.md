@@ -95,3 +95,12 @@ segments to active membership and object ownership. Receipt viewing uses
 authorized, short-lived signed URLs. Email confirmation is enabled locally and
 must remain required in production so invitation acceptance proves control of
 the invited mailbox.
+
+Receipt images are fully decoded with patched `sharp`/libvips under a
+25-megapixel, 12,000-pixel-edge, single-frame limit; container lengths and
+trailing data are also checked. PDFs are structurally parsed with `pdf-lib`,
+must end at `%%EOF`, and are limited to 50 pages and the common 10 MiB upload
+bound. PDF embedded streams are not rendered server-side, avoiding unbounded
+rasterization while the byte and page caps bound parser exposure. Extracted
+money and quantity evidence remains validated decimal text until PostgreSQL
+casts it to exact `numeric` columns.

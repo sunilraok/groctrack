@@ -6,6 +6,7 @@ import {
   type ReceiptExtractionResult,
   type ReceiptExtractor,
 } from "@/lib/receipt-extraction";
+import { z } from "zod";
 
 const GEMINI_API_ROOT =
   "https://generativelanguage.googleapis.com/v1beta/models";
@@ -18,11 +19,97 @@ interface GeminiExtractorOptions {
   timeoutMs?: number;
 }
 
-function classifyHttpError(response: Response) {
+const MAX_ERROR_BODY_BYTES = 16 * 1024;
+const MAX_SUCCESS_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_STRUCTURED_TEXT_LENGTH = 1024 * 1024;
+
+const geminiEnvelopeSchema = z.object({
+  candidates: z
+    .array(
+      z.object({
+        content: z.object({
+          parts: z
+            .array(z.object({ text: z.string().max(MAX_STRUCTURED_TEXT_LENGTH) }))
+            .max(4),
+        }),
+      }),
+    )
+    .min(1)
+    .max(4),
+});
+
+async function readBoundedJson(response: Response, maxBytes: number) {
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.byteLength;
+    if (length > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function providerReason(payload: unknown) {
+  const parsed = z
+    .object({
+      error: z.object({
+        status: z.string().max(80).optional(),
+        details: z
+          .array(z.object({ reason: z.string().max(120).optional() }).passthrough())
+          .max(20)
+          .optional(),
+      }),
+    })
+    .safeParse(payload);
+  if (!parsed.success) return null;
+  return (
+    parsed.data.error.details?.find((detail) => detail.reason)?.reason ??
+    parsed.data.error.status ??
+    null
+  );
+}
+
+async function classifyHttpError(response: Response) {
   if (response.status === 429) {
-    return response.headers.has("retry-after")
-      ? new ReceiptExtractionError("rate_limit", "Extraction is rate limited.", true)
-      : new ReceiptExtractionError("quota", "Extraction quota is exhausted.", true);
+    const reason = providerReason(
+      await readBoundedJson(response, MAX_ERROR_BODY_BYTES),
+    );
+    if (reason && /(QUOTA|DAILY_LIMIT|MONTHLY_LIMIT|BILLING)/i.test(reason)) {
+      return new ReceiptExtractionError(
+        "quota",
+        "Extraction quota is exhausted.",
+        true,
+      );
+    }
+    if (reason && /(RATE_LIMIT|TOO_MANY_REQUESTS)/i.test(reason)) {
+      return new ReceiptExtractionError(
+        "rate_limit",
+        "Extraction is rate limited.",
+        true,
+      );
+    }
+    return new ReceiptExtractionError(
+      "transient",
+      "The extraction provider is temporarily unavailable.",
+      true,
+    );
   }
   if (response.status === 408 || response.status >= 500) {
     return new ReceiptExtractionError(
@@ -100,12 +187,14 @@ export class GeminiReceiptExtractor implements ReceiptExtractor {
           }),
         },
       );
-      if (!response.ok) throw classifyHttpError(response);
+      if (!response.ok) throw await classifyHttpError(response);
 
-      const envelope = (await response.json()) as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      };
-      const text = envelope.candidates?.[0]?.content?.parts?.[0]?.text;
+      const envelope = geminiEnvelopeSchema.safeParse(
+        await readBoundedJson(response, MAX_SUCCESS_BODY_BYTES),
+      );
+      const text = envelope.success
+        ? envelope.data.candidates[0].content.parts[0]?.text
+        : null;
       if (!text) {
         throw new ReceiptExtractionError(
           "transient",
