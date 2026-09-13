@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(57);
+select plan(77);
 
 select ok(
   not has_function_privilege('anon', 'public.create_household(text)', 'execute'),
@@ -257,6 +257,114 @@ select throws_ok(
   'Receipt not found',
   'cross-household receipt RPC access is rejected'
 );
+select is_empty(
+  $$update public.households
+    set name = 'Cross-tenant update'
+    where id = '20000000-0000-0000-0000-000000000001'
+    returning id$$,
+  'cross-household household updates affect no rows'
+);
+select throws_ok(
+  $$insert into public.merchants (household_id, name, normalized_name)
+    values (
+      '20000000-0000-0000-0000-000000000001',
+      'Cross tenant',
+      'CROSS TENANT'
+    )$$,
+  '42501',
+  null,
+  'cross-household merchant inserts are rejected'
+);
+select is_empty(
+  $$update public.merchants
+    set name = 'Cross-tenant update'
+    where id = '30000000-0000-0000-0000-000000000001'
+    returning id$$,
+  'cross-household merchant updates affect no rows'
+);
+select throws_ok(
+  $$insert into public.grocery_items (
+      household_id,
+      name,
+      normalized_name,
+      unit_dimension,
+      base_unit,
+      created_by
+    )
+    values (
+      '20000000-0000-0000-0000-000000000001',
+      'Cross tenant',
+      'CROSS TENANT',
+      'count',
+      'each',
+      '10000000-0000-0000-0000-000000000003'
+    )$$,
+  '42501',
+  null,
+  'cross-household grocery inserts are rejected'
+);
+select is_empty(
+  $$update public.grocery_items
+    set name = 'Cross-tenant update'
+    where id = '40000000-0000-0000-0000-000000000001'
+    returning id$$,
+  'cross-household grocery updates affect no rows'
+);
+select throws_ok(
+  $$insert into public.receipts (
+      household_id,
+      uploaded_by,
+      image_path,
+      original_filename,
+      content_type
+    )
+    values (
+      '20000000-0000-0000-0000-000000000001',
+      '10000000-0000-0000-0000-000000000003',
+      '20000000-0000-0000-0000-000000000001/cross-tenant.jpg',
+      'cross-tenant.jpg',
+      'image/jpeg'
+    )$$,
+  '42501',
+  null,
+  'cross-household receipt inserts are rejected'
+);
+select is_empty(
+  $$update public.receipts
+    set purchased_at = now()
+    where id = '50000000-0000-0000-0000-000000000001'
+    returning id$$,
+  'cross-household receipt updates affect no rows'
+);
+select throws_ok(
+  $$insert into public.receipt_lines (
+      household_id,
+      receipt_id,
+      line_number,
+      raw_description
+    )
+    values (
+      '20000000-0000-0000-0000-000000000001',
+      '50000000-0000-0000-0000-000000000001',
+      99,
+      'CROSS TENANT'
+    )$$,
+  '42501',
+  null,
+  'cross-household receipt line inserts are rejected'
+);
+select is_empty(
+  $$delete from public.receipt_lines
+    where id = '60000000-0000-0000-0000-000000000001'
+    returning id$$,
+  'cross-household receipt line deletes affect no rows'
+);
+select is_empty(
+  $$delete from public.household_invitations
+    where household_id = '20000000-0000-0000-0000-000000000001'
+    returning id$$,
+  'cross-household invitation deletes affect no rows'
+);
 
 reset role;
 set local role authenticated;
@@ -485,17 +593,27 @@ select set_config(
   '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}',
   true
 );
-select throws_ok(
+select is_empty(
   $$update public.household_members
     set role = 'owner'
     where household_id = '20000000-0000-0000-0000-000000000001'
-      and user_id = '10000000-0000-0000-0000-000000000002'$$,
-  '42501',
-  null,
-  'membership changes must use transactional RPCs'
+      and user_id = '10000000-0000-0000-0000-000000000002'
+    returning user_id$$,
+  'direct membership changes affect no rows'
 );
 
 reset role;
+select is(
+  (
+    select role
+    from public.household_members
+    where household_id = '20000000-0000-0000-0000-000000000001'
+      and user_id = '10000000-0000-0000-0000-000000000002'
+  ),
+  'member'::public.household_role,
+  'a direct membership update leaves the persisted role unchanged'
+);
+
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
@@ -563,6 +681,47 @@ reset role;
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
+select throws_ok(
+  $$update public.receipts
+    set
+      status = 'posted',
+      posted_at = now(),
+      posted_by = '10000000-0000-0000-0000-000000000001'
+    where id = '50000000-0000-0000-0000-000000000003'$$,
+  '42501',
+  null,
+  'direct updates cannot transition a pending receipt to posted'
+);
+select is(
+  (
+    select status
+    from public.receipts
+    where id = '50000000-0000-0000-0000-000000000003'
+  ),
+  'pending'::public.receipt_status,
+  'a rejected direct posting leaves receipt state unchanged'
+);
+select is(
+  (
+    select count(*)
+    from public.inventory_transactions
+    where source_receipt_line_id in (
+      select id
+      from public.receipt_lines
+      where receipt_id = '50000000-0000-0000-0000-000000000003'
+    )
+  ),
+  0::bigint,
+  'a rejected direct posting creates no ledger entries'
+);
+
+reset role;
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
   '{"sub":"10000000-0000-0000-0000-000000000002","role":"authenticated"}',
   true
 );
@@ -572,6 +731,95 @@ select lives_ok(
 );
 
 reset role;
+select throws_ok(
+  $$update public.grocery_items
+    set low_stock_threshold = 'NaN'::numeric
+    where id = '40000000-0000-0000-0000-000000000002'$$,
+  '23514',
+  null,
+  'low-stock thresholds reject NaN'
+);
+select throws_ok(
+  $$update public.receipts
+    set total = 'Infinity'::numeric
+    where id = '50000000-0000-0000-0000-000000000002'$$,
+  '23514',
+  null,
+  'receipt totals reject positive infinity'
+);
+select throws_ok(
+  $$insert into public.receipt_lines (
+      household_id,
+      receipt_id,
+      line_number,
+      raw_description,
+      weight
+    )
+    values (
+      '20000000-0000-0000-0000-000000000001',
+      '50000000-0000-0000-0000-000000000002',
+      2,
+      'INVALID WEIGHT',
+      '-Infinity'::numeric
+    )$$,
+  '23514',
+  null,
+  'receipt line weights reject negative infinity'
+);
+select throws_ok(
+  $$insert into public.receipt_lines (
+      household_id,
+      receipt_id,
+      line_number,
+      raw_description,
+      unit_price
+    )
+    values (
+      '20000000-0000-0000-0000-000000000001',
+      '50000000-0000-0000-0000-000000000002',
+      3,
+      'INVALID MONEY',
+      'NaN'::numeric
+    )$$,
+  '23514',
+  null,
+  'receipt line money rejects NaN'
+);
+select throws_ok(
+  $$insert into public.inventory_transactions (
+      household_id,
+      grocery_item_id,
+      transaction_type,
+      quantity_base,
+      created_by
+    )
+    values (
+      '20000000-0000-0000-0000-000000000002',
+      '40000000-0000-0000-0000-000000000002',
+      'adjustment',
+      'Infinity'::numeric,
+      '10000000-0000-0000-0000-000000000003'
+    )$$,
+  '23514',
+  null,
+  'inventory transactions reject positive infinity'
+);
+select throws_ok(
+  $$insert into public.inventory_balances (
+      household_id,
+      grocery_item_id,
+      quantity_base
+    )
+    values (
+      '20000000-0000-0000-0000-000000000002',
+      '40000000-0000-0000-0000-000000000002',
+      '-Infinity'::numeric
+    )$$,
+  '23514',
+  null,
+  'inventory balances reject negative infinity'
+);
+
 select ok(
   (
     select revoked_at is null
@@ -680,6 +928,13 @@ select is(
 );
 
 reset role;
+update public.household_invitations
+set revoked_at = now()
+where token_hash in (
+  encode(extensions.digest('owner-self-member-token', 'sha256'), 'hex'),
+  encode(extensions.digest('active-member-owner-token', 'sha256'), 'hex')
+);
+
 insert into public.household_invitations (
   household_id,
   email,

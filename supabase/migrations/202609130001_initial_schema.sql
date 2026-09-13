@@ -1151,7 +1151,9 @@ end;
 $$;
 
 revoke all on all functions in schema public from public, anon, authenticated;
+revoke all on all tables in schema public from anon, authenticated;
 
+grant execute on function public.is_finite_numeric(numeric) to authenticated;
 grant execute on function public.create_household(text) to authenticated;
 grant execute on function public.accept_household_invitation(text) to authenticated;
 grant execute on function public.is_household_member(uuid) to authenticated;
@@ -1176,7 +1178,7 @@ grant execute on function public.reverse_inventory_transaction(uuid, text) to au
 
 grant select, update on public.profiles to authenticated;
 grant select, update on public.households to authenticated;
-grant select on public.household_members to authenticated;
+grant select, update on public.household_members to authenticated;
 grant select, insert, update, delete on public.household_invitations to authenticated;
 grant select, insert, update on public.merchants to authenticated;
 grant select, insert, update on public.grocery_items to authenticated;
