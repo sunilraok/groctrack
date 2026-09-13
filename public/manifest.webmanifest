@@ -1,0 +1,17 @@
+{
+  "name": "GrocTrack",
+  "short_name": "GrocTrack",
+  "description": "Turn grocery receipts into a shared kitchen inventory.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#fbfaf6",
+  "theme_color": "#2e6b45",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
