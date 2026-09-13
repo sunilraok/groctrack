@@ -5,6 +5,15 @@ import { signIn, signUp, type AuthState } from "./actions";
 
 const initialState: AuthState = {};
 
+export function AuthFeedback({ state }: { state: AuthState }) {
+  return (
+    <>
+      {state.error && <p className="form-error" role="alert">{state.error}</p>}
+      {state.message && <p className="form-success">{state.message}</p>}
+    </>
+  );
+}
+
 export function AuthForm({ next }: { next: string }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [state, action, pending] = useActionState(
@@ -53,8 +62,7 @@ export function AuthForm({ next }: { next: string }) {
             required
           />
         </label>
-        {state.error && <p className="form-error" role="alert">{state.error}</p>}
-        {state.message && <p className="form-success">{state.message}</p>}
+        <AuthFeedback state={state} />
         <button className="button primary" disabled={pending}>
           {pending ? "Working..." : mode === "sign-in" ? "Sign in" : "Create account"}
         </button>

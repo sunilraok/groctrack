@@ -28,11 +28,15 @@ export async function signIn(
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({
-    email: parsed.data.email.toLowerCase(),
-    password: parsed.data.password,
-  });
-  if (error) return { error: genericSignInError };
+  try {
+    const { error } = await supabase.auth.signInWithPassword({
+      email: parsed.data.email.toLowerCase(),
+      password: parsed.data.password,
+    });
+    if (error) return { error: genericSignInError };
+  } catch {
+    return { error: genericSignInError };
+  }
 
   redirect(safeNextPath(parsed.data.next ?? null));
 }

@@ -1,6 +1,6 @@
 begin;
 
-select plan(10);
+select plan(14);
 
 insert into auth.users (
   instance_id,
@@ -56,6 +56,17 @@ insert into auth.users (
   );
 
 create temporary table test_household (id uuid not null);
+grant select, insert on table test_household to authenticated;
+
+select is(
+  (
+    select display_name
+    from public.profiles
+    where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  ),
+  'Owner',
+  'the auth user trigger bootstraps the profile display name'
+);
 
 set local role authenticated;
 select set_config(
@@ -195,6 +206,38 @@ select is(
   (select count(*) from public.profiles),
   2::bigint,
   'members can list profiles only after sharing a household'
+);
+
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}',
+  true
+);
+
+select lives_ok(
+  $$select public.revoke_household_member(
+      (select id from test_household),
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    )$$,
+  'the owner can revoke the invited member'
+);
+
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","role":"authenticated"}',
+  true
+);
+
+select is(
+  (select count(*) from public.households),
+  0::bigint,
+  'a revoked member loses household visibility'
+);
+
+select is(
+  (select count(*) from public.profiles),
+  1::bigint,
+  'a revoked member loses shared profile visibility'
 );
 
 select * from finish();

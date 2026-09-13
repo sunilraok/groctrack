@@ -10,7 +10,7 @@ import {
   type FormState,
 } from "./actions";
 
-function Feedback({ state }: { state: FormState<unknown> }) {
+export function Feedback({ state }: { state: FormState<unknown> }) {
   if (!state) return null;
   return state.ok ? (
     <p className="form-success">Saved.</p>
