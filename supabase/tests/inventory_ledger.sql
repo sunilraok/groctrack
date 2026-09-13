@@ -1,6 +1,6 @@
 begin;
 
-select plan(20);
+select plan(21);
 
 insert into auth.users (
   instance_id,
@@ -97,6 +97,16 @@ select is(
   (select quantity_base from public.inventory_balances where grocery_item_id = '33333333-3333-4333-8333-333333333333'),
   1250::numeric,
   'an adjustment projects into the balance'
+);
+
+select is(
+  (
+    select pg_typeof(quantity_base)::text
+    from public.inventory_stock
+    where id = '33333333-3333-4333-8333-333333333333'
+  ),
+  'text',
+  'the API-facing stock view preserves numeric values as text'
 );
 
 select lives_ok(
