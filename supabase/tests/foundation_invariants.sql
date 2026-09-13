@@ -292,30 +292,18 @@ select throws_ok(
   null,
   'a member cannot claim another member orphaned storage object'
 );
-select is(
-  (
-    with deleted as (
-      delete from storage.objects
-      where bucket_id = 'receipts'
-        and name = '20000000-0000-0000-0000-000000000001/owner-upload.jpg'
-      returning name
-    )
-    select count(*) from deleted
-  ),
-  0::bigint,
+select is_empty(
+  $$delete from storage.objects
+    where bucket_id = 'receipts'
+      and name = '20000000-0000-0000-0000-000000000001/owner-upload.jpg'
+    returning name$$,
   'a member cannot delete another uploader receipt object'
 );
-select is(
-  (
-    with deleted as (
-      delete from storage.objects
-      where bucket_id = 'receipts'
-        and name = '20000000-0000-0000-0000-000000000001/orphan-owner-upload.jpg'
-      returning name
-    )
-    select count(*) from deleted
-  ),
-  0::bigint,
+select is_empty(
+  $$delete from storage.objects
+    where bucket_id = 'receipts'
+      and name = '20000000-0000-0000-0000-000000000001/orphan-owner-upload.jpg'
+    returning name$$,
   'a member cannot delete another uploader orphaned storage object'
 );
 
@@ -353,17 +341,12 @@ select lives_ok(
     )$$,
   'an active member can create a receipt in the exact initial state'
 );
-select is(
-  (
-    with deleted as (
-      delete from storage.objects
-      where bucket_id = 'receipts'
-        and name = '20000000-0000-0000-0000-000000000001/pending.jpg'
-      returning name
-    )
-    select count(*) from deleted
-  ),
-  1::bigint,
+select results_eq(
+  $$delete from storage.objects
+    where bucket_id = 'receipts'
+      and name = '20000000-0000-0000-0000-000000000001/pending.jpg'
+    returning name$$,
+  array['20000000-0000-0000-0000-000000000001/pending.jpg'::text],
   'the owning uploader can delete their unposted receipt object'
 );
 select throws_ok(

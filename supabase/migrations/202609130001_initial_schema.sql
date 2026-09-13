@@ -336,7 +336,17 @@ begin
   if new.household_id <> old.household_id then
     raise exception 'A record cannot be moved between households';
   end if;
-  if tg_table_name = 'household_members' and new.user_id <> old.user_id then
+  return new;
+end;
+$$;
+
+create or replace function public.prevent_membership_reassignment()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.user_id <> old.user_id then
     raise exception 'A membership cannot be reassigned to another user';
   end if;
   return new;
@@ -346,6 +356,9 @@ $$;
 create trigger household_members_prevent_household_change
 before update on public.household_members
 for each row execute function public.prevent_household_change();
+create trigger household_members_prevent_user_change
+before update on public.household_members
+for each row execute function public.prevent_membership_reassignment();
 create trigger merchants_prevent_household_change
 before update on public.merchants
 for each row execute function public.prevent_household_change();
@@ -1116,7 +1129,7 @@ begin
 end;
 $$;
 
-revoke all on all functions in schema public from public;
+revoke all on all functions in schema public from public, anon, authenticated;
 
 grant execute on function public.create_household(text) to authenticated;
 grant execute on function public.accept_household_invitation(text) to authenticated;
