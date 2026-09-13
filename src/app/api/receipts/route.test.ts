@@ -58,7 +58,7 @@ async function requestFor(bytes: Uint8Array) {
 }
 
 function createHarness(
-  options: { concurrent?: boolean; failInsert?: boolean } = {},
+  options: { concurrent?: boolean; firstInsertTransient?: boolean } = {},
 ) {
   let objectExists = false;
   let objectBytes: Uint8Array | null = null;
@@ -67,10 +67,7 @@ function createHarness(
   const uploadsReady = deferred();
   let insertCalls = 0;
   const insertsReady = deferred();
-  const cleanup = vi.fn(async ({ object_name: _objectName }) => {
-    if (!receipts.length) objectExists = false;
-    return { data: !objectExists, error: null };
-  });
+  const remove = vi.fn();
 
   const query = (table: string) => {
     const filters: Record<string, unknown> = {};
@@ -139,26 +136,26 @@ function createHarness(
   const admin = {
     from: vi.fn(() => ({
       insert: vi.fn(async (receipt: StoredReceipt) => {
-        if (options.failInsert) return { error: { code: "XX000" } };
         insertCalls += 1;
+        const callNumber = insertCalls;
         if (options.concurrent) {
           if (insertCalls === 2) insertsReady.resolve();
           await insertsReady.promise;
+        }
+        if (options.firstInsertTransient && callNumber === 1) {
+          return { error: { code: "XX000" } };
         }
         if (receipts.length) return { error: { code: "23505" } };
         receipts.push({ ...receipt, extraction_retryable: false });
         return { error: null };
       }),
     })),
-    rpc: vi.fn(async (name: string, args: { object_name: string }) =>
-      name === "cleanup_unlinked_receipt_object"
-        ? cleanup(args)
-        : { data: null, error: null },
-    ),
+    rpc: vi.fn(async () => ({ data: null, error: null })),
+    storage: { from: vi.fn(() => ({ remove })) },
   };
   return {
     admin,
-    cleanup,
+    remove,
     receipts,
     storageBucket,
     supabase,
@@ -200,11 +197,14 @@ describe("POST /api/receipts", () => {
     expect(firstBody.receiptId).toBe(secondBody.receiptId);
     expect(harness.receipts).toHaveLength(1);
     expect(harness.objectExists()).toBe(true);
-    expect(harness.cleanup).not.toHaveBeenCalled();
+    expect(harness.remove).not.toHaveBeenCalled();
   });
 
-  it("atomically cleans up an exclusively created object after insert failure", async () => {
-    const harness = createHarness({ failInsert: true });
+  it("does not remove an object when one concurrent insert fails transiently", async () => {
+    const harness = createHarness({
+      concurrent: true,
+      firstInsertTransient: true,
+    });
     vi.mocked(createClient).mockResolvedValue(harness.supabase as never);
     vi.mocked(createAdminClient).mockReturnValue(harness.admin as never);
     const png = new Uint8Array(
@@ -215,10 +215,37 @@ describe("POST /api/receipts", () => {
         .toBuffer(),
     );
 
-    const response = await POST(await requestFor(png));
-    expect(response.status).toBe(500);
-    expect(harness.cleanup).toHaveBeenCalledOnce();
-    expect(harness.objectExists()).toBe(false);
+    const responses = await Promise.all([
+      POST(await requestFor(png)),
+      POST(await requestFor(png)),
+    ]);
+    expect(responses.some((response) => response.ok)).toBe(true);
+    expect(harness.receipts).toHaveLength(1);
+    expect(harness.objectExists()).toBe(true);
+    expect(harness.remove).not.toHaveBeenCalled();
+  });
+
+  it("retains and reuses an object after a transient insert failure", async () => {
+    const harness = createHarness({ firstInsertTransient: true });
+    vi.mocked(createClient).mockResolvedValue(harness.supabase as never);
+    vi.mocked(createAdminClient).mockReturnValue(harness.admin as never);
+    const png = new Uint8Array(
+      await sharp({
+        create: { width: 1, height: 1, channels: 3, background: "#fff" },
+      })
+        .png()
+        .toBuffer(),
+    );
+
+    const failed = await POST(await requestFor(png));
+    expect(failed.status).toBe(500);
+    expect(harness.objectExists()).toBe(true);
+
+    const recovered = await POST(await requestFor(png));
+    expect(recovered.ok).toBe(true);
+    expect(harness.receipts).toHaveLength(1);
+    expect(harness.storageBucket.download).toHaveBeenCalled();
+    expect(harness.remove).not.toHaveBeenCalled();
   });
 
   it("routes repeated processing uploads through the guarded lease claim", async () => {

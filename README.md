@@ -104,3 +104,10 @@ bound. PDF embedded streams are not rendered server-side, avoiding unbounded
 rasterization while the byte and page caps bound parser exposure. Extracted
 money and quantity evidence remains validated decimal text until PostgreSQL
 casts it to exact `numeric` columns.
+
+Upload object names are deterministic for each client operation. If receipt
+registration fails, the private object is retained rather than synchronously
+deleted; a retry verifies ownership, size, and SHA-256 before reusing it. This
+avoids deleting an object that a concurrent successful request is about to
+reference. Any future orphan cleanup must be delayed and use the Storage API,
+never direct `storage.objects` metadata deletion.

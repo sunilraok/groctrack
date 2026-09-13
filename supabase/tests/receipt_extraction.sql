@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(18);
+select plan(17);
 
 select has_column('public', 'receipts', 'upload_id');
 select has_column('public', 'receipts', 'content_sha256');
@@ -32,14 +32,6 @@ select ok(
     'execute'
   ),
   'the service role can atomically persist extraction results'
-);
-select ok(
-  not has_function_privilege(
-    'authenticated',
-    'public.cleanup_unlinked_receipt_object(text)',
-    'execute'
-  ),
-  'authenticated clients cannot invoke transactional object cleanup'
 );
 select is(
   (

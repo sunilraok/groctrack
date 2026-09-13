@@ -182,7 +182,6 @@ export async function POST(request: Request) {
       contentType: validated.contentType,
       upsert: false,
     });
-  const createdObject = !uploadError;
   if (uploadError) {
     const { data: ownedExistingObject } = await supabase.rpc(
       "owns_receipt_object",
@@ -214,11 +213,6 @@ export async function POST(request: Request) {
     { object_name: objectPath },
   );
   if (ownershipError || !ownsObject) {
-    if (createdObject) {
-      await admin.rpc("cleanup_unlinked_receipt_object", {
-        object_name: objectPath,
-      });
-    }
     return NextResponse.json({ error: "Unable to verify receipt ownership." }, { status: 500 });
   }
 
@@ -247,11 +241,6 @@ export async function POST(request: Request) {
       .maybeSingle();
     if (winner && matchesUpload(winner, file, validated)) {
       return respondForExisting(winner, supabase);
-    }
-    if (createdObject) {
-      await admin.rpc("cleanup_unlinked_receipt_object", {
-        object_name: objectPath,
-      });
     }
     return NextResponse.json({ error: "Unable to register receipt." }, { status: 500 });
   }

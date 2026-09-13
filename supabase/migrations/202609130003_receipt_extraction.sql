@@ -396,30 +396,6 @@ begin
 end;
 $$;
 
-create or replace function public.cleanup_unlinked_receipt_object(object_name text)
-returns boolean
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  if coalesce((select auth.role()), '') <> 'service_role' then
-    raise exception 'Service role required';
-  end if;
-
-  delete from storage.objects
-  where bucket_id = 'receipts'
-    and name = object_name
-    and not exists (
-      select 1
-      from public.receipts
-      where receipts.image_path = object_name
-    );
-
-  return found;
-end;
-$$;
-
 revoke all on function public.claim_receipt_extraction(uuid, uuid) from public;
 revoke all on function public.fail_receipt_extraction(uuid, uuid, text, text, boolean) from public;
 revoke all on function public.complete_receipt_extraction(
@@ -433,7 +409,6 @@ revoke all on function public.complete_receipt_extraction(
   jsonb
 ) from public;
 revoke all on function public.void_receipt(uuid) from public;
-revoke all on function public.cleanup_unlinked_receipt_object(text) from public;
 
 grant execute on function public.claim_receipt_extraction(uuid, uuid) to service_role;
 grant execute on function public.fail_receipt_extraction(uuid, uuid, text, text, boolean) to service_role;
@@ -448,4 +423,3 @@ grant execute on function public.complete_receipt_extraction(
   jsonb
 ) to service_role;
 grant execute on function public.void_receipt(uuid) to authenticated;
-grant execute on function public.cleanup_unlinked_receipt_object(text) to service_role;
