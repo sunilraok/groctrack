@@ -113,7 +113,6 @@ jobs:
           echo "SUPABASE_SERVICE_ROLE_KEY=$(jq -r '.SERVICE_ROLE_KEY' <<<"$status")" >> "$GITHUB_ENV"
       - name: Run receipt integration tests
         run: npm run test:receipt-integration
-        run: npm run test:receipt-integration
 
       - name: Stop local Supabase
         if: always()
