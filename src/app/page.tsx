@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl items-center px-6 py-16">
@@ -9,9 +11,15 @@ export default function Home() {
           Shared grocery inventory, built on a secure foundation.
         </h1>
         <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
-          The application foundation and household data model are ready. Product
-          workflows will arrive in focused follow-up releases.
+          Create a private household, invite the people you live with, and keep
+          everyone working from the same grocery list.
         </p>
+        <Link
+          className="mt-8 inline-flex min-h-11 items-center rounded-xl bg-emerald-700 px-5 font-semibold text-white hover:bg-emerald-800"
+          href="/auth"
+        >
+          Sign in or create an account
+        </Link>
       </section>
     </main>
   );

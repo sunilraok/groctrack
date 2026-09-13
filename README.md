@@ -1,9 +1,9 @@
 # GrocTrack
 
 GrocTrack is a Next.js application for shared household grocery inventory. This
-foundation includes the application toolchain, environment validation, and a
-tenant-isolated Supabase data model. User-facing workflows are intentionally
-deferred to later issues.
+foundation includes the application toolchain, environment validation, a
+tenant-isolated Supabase data model, email authentication, and household
+membership workflows.
 
 ## Prerequisites
 
@@ -36,7 +36,11 @@ deferred to later issues.
    npx supabase db reset
    ```
 
-5. Start the app:
+5. In the local Supabase dashboard, keep email authentication enabled. For
+   production, add the deployed `/auth/callback` URL to the allowed redirect
+   URLs.
+
+6. Start the app:
 
    ```bash
    npm run dev
@@ -63,6 +67,9 @@ npx supabase stop --no-backup
 The integration script requires a running local Supabase stack and Docker. It
 exercises the Storage API and two-connection database races. The same checks run
 in GitHub Actions for pull requests and pushes to `main`.
+
+The database tests exercise cross-household RLS, owner-only invitations,
+email-bound invitation acceptance, and profile visibility between members.
 
 The `receipts` storage bucket is private. Object names must begin with the
 household UUID, for example

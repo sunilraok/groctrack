@@ -686,6 +686,25 @@ begin
 end;
 $$;
 
+create or replace function public.shares_household_with(target_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.household_members caller_membership
+    join public.household_members target_membership
+      on target_membership.household_id = caller_membership.household_id
+    where caller_membership.user_id = (select auth.uid())
+      and target_membership.user_id = target_user_id
+      and caller_membership.revoked_at is null
+      and target_membership.revoked_at is null
+  );
+$$;
+
 create or replace function public.create_household(household_name text)
 returns uuid
 language plpgsql
@@ -1166,6 +1185,7 @@ grant execute on function public.set_household_member_role(
   public.household_role
 ) to authenticated;
 grant execute on function public.revoke_household_member(uuid, uuid) to authenticated;
+grant execute on function public.shares_household_with(uuid) to authenticated;
 grant execute on function public.post_receipt(uuid) to authenticated;
 grant execute on function public.record_inventory_change(
   uuid,
@@ -1202,7 +1222,10 @@ alter table public.inventory_balances enable row level security;
 
 create policy "Users can read own profile"
 on public.profiles for select to authenticated
-using (id = (select auth.uid()));
+using (
+  id = (select auth.uid())
+  or public.shares_household_with(id)
+);
 create policy "Users can update own profile"
 on public.profiles for update to authenticated
 using (id = (select auth.uid()))

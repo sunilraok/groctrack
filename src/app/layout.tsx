@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "GrocTrack",
   description:
-    "A secure foundation for shared household grocery inventory.",
+    "Private grocery inventory for your household.",
 };
 
 export default function RootLayout({
