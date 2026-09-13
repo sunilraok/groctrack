@@ -359,6 +359,38 @@ create trigger receipt_lines_prevent_household_change
 before update on public.receipt_lines
 for each row execute function public.prevent_household_change();
 
+create or replace function public.protect_receipt_origin()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if (
+    new.id,
+    new.uploaded_by,
+    new.image_path,
+    new.original_filename,
+    new.content_type,
+    new.created_at
+  ) is distinct from (
+    old.id,
+    old.uploaded_by,
+    old.image_path,
+    old.original_filename,
+    old.content_type,
+    old.created_at
+  )
+  then
+    raise exception 'Receipt upload identity and provenance are immutable';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger receipts_protect_origin
+before update on public.receipts
+for each row execute function public.protect_receipt_origin();
+
 create or replace function public.lock_mutable_receipt()
 returns trigger
 language plpgsql

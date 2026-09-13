@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(45);
+select plan(47);
 
 select ok(
   not has_function_privilege('anon', 'public.create_household(text)', 'execute'),
@@ -134,6 +134,23 @@ insert into public.receipts (
   id,
   household_id,
   uploaded_by,
+  image_path,
+  original_filename,
+  content_type
+)
+values (
+  '50000000-0000-0000-0000-000000000003',
+  '20000000-0000-0000-0000-000000000001',
+  '10000000-0000-0000-0000-000000000001',
+  '20000000-0000-0000-0000-000000000001/owner-upload.jpg',
+  'owner-upload.jpg',
+  'image/jpeg'
+);
+
+insert into public.receipts (
+  id,
+  household_id,
+  uploaded_by,
   merchant_id,
   image_path,
   original_filename,
@@ -173,10 +190,15 @@ values (
 );
 
 insert into storage.objects (bucket_id, name)
-values (
-  'receipts',
-  '20000000-0000-0000-0000-000000000001/receipt.jpg'
-);
+values
+  (
+    'receipts',
+    '20000000-0000-0000-0000-000000000001/receipt.jpg'
+  ),
+  (
+    'receipts',
+    '20000000-0000-0000-0000-000000000001/owner-upload.jpg'
+  );
 
 insert into public.household_invitations (
   household_id,
@@ -227,6 +249,35 @@ select throws_ok(
   'P0001',
   'Receipt not found',
   'cross-household receipt RPC access is rejected'
+);
+
+reset role;
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"10000000-0000-0000-0000-000000000002","role":"authenticated"}',
+  true
+);
+select throws_ok(
+  $$update public.receipts
+    set uploaded_by = '10000000-0000-0000-0000-000000000002'
+    where id = '50000000-0000-0000-0000-000000000003'$$,
+  'P0001',
+  'Receipt upload identity and provenance are immutable',
+  'a member cannot claim another member receipt upload'
+);
+select is(
+  (
+    with deleted as (
+      delete from storage.objects
+      where bucket_id = 'receipts'
+        and name = '20000000-0000-0000-0000-000000000001/owner-upload.jpg'
+      returning name
+    )
+    select count(*) from deleted
+  ),
+  0::bigint,
+  'a member cannot delete another uploader receipt object'
 );
 
 reset role;
