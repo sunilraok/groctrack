@@ -189,6 +189,10 @@ rest_service POST receipts "$(jq -nc \
     object_size: 12,
     content_sha256: "bbd39a74d00734b0d47c453f1c6ea055ea251bb73fc4b3cba928b56b39d0353d"
   }')"
+rest_service PATCH "receipts?image_path=eq.$posted_path" \
+  '{"status":"processing","extraction_run_id":"94000000-0000-4000-8000-000000000001","processing_started_at":"2026-09-13T00:00:00Z"}'
+rest_service PATCH "receipts?image_path=eq.$posted_path" \
+  '{"status":"review_ready","extraction_run_id":null,"processing_started_at":null}'
 rest_service PATCH "receipts?image_path=eq.$posted_path" "$(jq -nc \
   --arg posted_by "$owner_id" \
   '{status: "posted", posted_at: "2026-09-13T00:00:00Z", posted_by: $posted_by}')"
