@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(47);
+select plan(51);
 
 select ok(
   not has_function_privilege('anon', 'public.create_household(text)', 'execute'),
@@ -189,15 +189,22 @@ values (
   '40000000-0000-0000-0000-000000000001'
 );
 
-insert into storage.objects (bucket_id, name)
+insert into storage.objects (bucket_id, name, owner_id)
 values
   (
     'receipts',
-    '20000000-0000-0000-0000-000000000001/receipt.jpg'
+    '20000000-0000-0000-0000-000000000001/receipt.jpg',
+    '10000000-0000-0000-0000-000000000002'
   ),
   (
     'receipts',
-    '20000000-0000-0000-0000-000000000001/owner-upload.jpg'
+    '20000000-0000-0000-0000-000000000001/owner-upload.jpg',
+    '10000000-0000-0000-0000-000000000001'
+  ),
+  (
+    'receipts',
+    '20000000-0000-0000-0000-000000000001/orphan-owner-upload.jpg',
+    '10000000-0000-0000-0000-000000000001'
   );
 
 insert into public.household_invitations (
@@ -266,6 +273,25 @@ select throws_ok(
   'Receipt upload identity and provenance are immutable',
   'a member cannot claim another member receipt upload'
 );
+select throws_ok(
+  $$insert into public.receipts (
+      household_id,
+      uploaded_by,
+      image_path,
+      original_filename,
+      content_type
+    )
+    values (
+      '20000000-0000-0000-0000-000000000001',
+      '10000000-0000-0000-0000-000000000002',
+      '20000000-0000-0000-0000-000000000001/orphan-owner-upload.jpg',
+      'orphan-owner-upload.jpg',
+      'image/jpeg'
+    )$$,
+  '42501',
+  null,
+  'a member cannot claim another member orphaned storage object'
+);
 select is(
   (
     with deleted as (
@@ -279,6 +305,19 @@ select is(
   0::bigint,
   'a member cannot delete another uploader receipt object'
 );
+select is(
+  (
+    with deleted as (
+      delete from storage.objects
+      where bucket_id = 'receipts'
+        and name = '20000000-0000-0000-0000-000000000001/orphan-owner-upload.jpg'
+      returning name
+    )
+    select count(*) from deleted
+  ),
+  0::bigint,
+  'a member cannot delete another uploader orphaned storage object'
+);
 
 reset role;
 set local role authenticated;
@@ -288,6 +327,15 @@ select set_config(
   true
 );
 
+select lives_ok(
+  $$insert into storage.objects (bucket_id, name, owner_id)
+    values (
+      'receipts',
+      '20000000-0000-0000-0000-000000000001/pending.jpg',
+      '10000000-0000-0000-0000-000000000001'
+    )$$,
+  'an active household member can upload an object they own'
+);
 select lives_ok(
   $$insert into public.receipts (
       household_id,
@@ -304,6 +352,19 @@ select lives_ok(
       'image/jpeg'
     )$$,
   'an active member can create a receipt in the exact initial state'
+);
+select is(
+  (
+    with deleted as (
+      delete from storage.objects
+      where bucket_id = 'receipts'
+        and name = '20000000-0000-0000-0000-000000000001/pending.jpg'
+      returning name
+    )
+    select count(*) from deleted
+  ),
+  1::bigint,
+  'the owning uploader can delete their unposted receipt object'
 );
 select throws_ok(
   $$insert into public.receipts (

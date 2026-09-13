@@ -520,6 +520,22 @@ as $$
   );
 $$;
 
+create or replace function public.owns_receipt_object(object_name text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from storage.objects
+    where bucket_id = 'receipts'
+      and name = object_name
+      and owner_id = (select auth.uid())::text
+  );
+$$;
+
 create or replace function public.set_household_member_role(
   target_household_id uuid,
   target_user_id uuid,
@@ -1066,6 +1082,7 @@ grant execute on function public.create_household(text) to authenticated;
 grant execute on function public.accept_household_invitation(text) to authenticated;
 grant execute on function public.is_household_member(uuid) to authenticated;
 grant execute on function public.is_household_owner(uuid) to authenticated;
+grant execute on function public.owns_receipt_object(text) to authenticated;
 grant execute on function public.set_household_member_role(
   uuid,
   uuid,
@@ -1185,6 +1202,7 @@ with check (
   and extraction_error is null
   and posted_at is null
   and posted_by is null
+  and public.owns_receipt_object(image_path)
 );
 create policy "Members can update unposted receipts"
 on public.receipts for update to authenticated
@@ -1291,11 +1309,13 @@ with check (
       and household_id::text = (storage.foldername(name))[1]
       and revoked_at is null
   )
+  and owner_id = (select auth.uid())::text
 );
 create policy "Uploaders can remove unposted receipt images"
 on storage.objects for delete to authenticated
 using (
   bucket_id = 'receipts'
+  and owner_id = (select auth.uid())::text
   and exists (
     select 1 from public.receipts
     where receipts.image_path = name
