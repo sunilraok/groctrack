@@ -411,18 +411,16 @@ select throws_ok(
   null,
   'a member cannot claim another member orphaned storage object'
 );
-select is_empty(
-  $$delete from storage.objects
-    where bucket_id = 'receipts'
-      and name = '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/51000000-0000-4000-8000-000000000003.jpg'
-    returning name$$,
+select ok(
+  not public.can_delete_receipt_object(
+    '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/51000000-0000-4000-8000-000000000003.jpg'
+  ),
   'a member cannot delete another uploader receipt object'
 );
-select is_empty(
-  $$delete from storage.objects
-    where bucket_id = 'receipts'
-      and name = '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/52000000-0000-4000-8000-000000000001.jpg'
-    returning name$$,
+select ok(
+  not public.can_delete_receipt_object(
+    '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/52000000-0000-4000-8000-000000000001.jpg'
+  ),
   'a member cannot delete another uploader orphaned storage object'
 );
 
@@ -492,14 +490,10 @@ select set_config(
   '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}',
   true
 );
-select results_eq(
-  $$delete from storage.objects
-    where bucket_id = 'receipts'
-      and name = '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/53000000-0000-4000-8000-000000000001.jpg'
-    returning name$$,
-  $$values (
+select ok(
+  public.can_delete_receipt_object(
     '20000000-0000-0000-0000-000000000001/10000000-0000-0000-0000-000000000001/53000000-0000-4000-8000-000000000001.jpg'
-  )$$,
+  ),
   'the owning uploader can delete their unposted receipt object'
 );
 select throws_ok(
