@@ -132,12 +132,16 @@ rest_service POST household_members "$(jq -nc \
   --arg user_id "$member_id" \
   '{household_id: $household_id, user_id: $user_id, role: "member"}')"
 
-owner_path="$household_id/owner.jpg"
-posted_path="$household_id/posted.jpg"
-member_path="$household_id/member.jpg"
+owner_upload_id="93000000-0000-4000-8000-000000000001"
+posted_upload_id="93000000-0000-4000-8000-000000000002"
+member_upload_id="93000000-0000-4000-8000-000000000003"
+owner_path="$household_id/$owner_id/$owner_upload_id.jpg"
+posted_path="$household_id/$owner_id/$posted_upload_id.jpg"
+member_path="$household_id/$member_id/$member_upload_id.jpg"
 
 storage_upload success "$owner_token" "$owner_path"
-storage_upload failure "$member_token" "$other_household_id/cross-household.jpg"
+storage_upload failure "$member_token" \
+  "$other_household_id/$member_id/93000000-0000-4000-8000-000000000004.jpg"
 
 rest_user failure POST receipts "$member_token" "$(jq -nc \
   --arg household_id "$household_id" \
@@ -152,30 +156,38 @@ rest_user failure POST receipts "$member_token" "$(jq -nc \
   }')"
 storage_delete failure "$member_token" "$owner_path"
 
-rest_user success POST receipts "$owner_token" "$(jq -nc \
+rest_service POST receipts "$(jq -nc \
   --arg household_id "$household_id" \
   --arg uploaded_by "$owner_id" \
+  --arg upload_id "$owner_upload_id" \
   --arg image_path "$owner_path" \
   '{
     household_id: $household_id,
     uploaded_by: $uploaded_by,
+    upload_id: $upload_id,
     image_path: $image_path,
     original_filename: "owner.jpg",
-    content_type: "image/jpeg"
+    content_type: "image/jpeg",
+    object_size: 12,
+    content_sha256: "bbd39a74d00734b0d47c453f1c6ea055ea251bb73fc4b3cba928b56b39d0353d"
   }')"
 storage_delete success "$owner_token" "$owner_path"
 
 storage_upload success "$owner_token" "$posted_path"
-rest_user success POST receipts "$owner_token" "$(jq -nc \
+rest_service POST receipts "$(jq -nc \
   --arg household_id "$household_id" \
   --arg uploaded_by "$owner_id" \
+  --arg upload_id "$posted_upload_id" \
   --arg image_path "$posted_path" \
   '{
     household_id: $household_id,
     uploaded_by: $uploaded_by,
+    upload_id: $upload_id,
     image_path: $image_path,
     original_filename: "posted.jpg",
-    content_type: "image/jpeg"
+    content_type: "image/jpeg",
+    object_size: 12,
+    content_sha256: "bbd39a74d00734b0d47c453f1c6ea055ea251bb73fc4b3cba928b56b39d0353d"
   }')"
 rest_service PATCH "receipts?image_path=eq.$posted_path" "$(jq -nc \
   --arg posted_by "$owner_id" \
@@ -183,16 +195,20 @@ rest_service PATCH "receipts?image_path=eq.$posted_path" "$(jq -nc \
 storage_delete failure "$owner_token" "$posted_path"
 
 storage_upload success "$member_token" "$member_path"
-rest_user success POST receipts "$member_token" "$(jq -nc \
+rest_service POST receipts "$(jq -nc \
   --arg household_id "$household_id" \
   --arg uploaded_by "$member_id" \
+  --arg upload_id "$member_upload_id" \
   --arg image_path "$member_path" \
   '{
     household_id: $household_id,
     uploaded_by: $uploaded_by,
+    upload_id: $upload_id,
     image_path: $image_path,
     original_filename: "member.jpg",
-    content_type: "image/jpeg"
+    content_type: "image/jpeg",
+    object_size: 12,
+    content_sha256: "bbd39a74d00734b0d47c453f1c6ea055ea251bb73fc4b3cba928b56b39d0353d"
   }')"
 rest_service PATCH \
   "household_members?household_id=eq.$household_id&user_id=eq.$member_id" \
