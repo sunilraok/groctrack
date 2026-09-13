@@ -56,10 +56,13 @@ npx supabase start
 npx supabase db reset
 npx supabase db lint
 npx supabase test db
+npx --package supabase@2.117.0 -c 'bash supabase/tests/integration.sh'
 npx supabase stop --no-backup
 ```
 
-The same checks run in GitHub Actions for pull requests and pushes to `main`.
+The integration script requires a running local Supabase stack and Docker. It
+exercises the Storage API and two-connection database races. The same checks run
+in GitHub Actions for pull requests and pushes to `main`.
 
 The `receipts` storage bucket is private. Object names must begin with the
 household UUID, for example

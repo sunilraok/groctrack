@@ -77,6 +77,9 @@ jobs:
       - name: Run database tests
         run: supabase test db
 
+      - name: Run Storage and concurrency integration tests
+        run: bash supabase/tests/integration.sh
+
       - name: Stop local Supabase
         if: always()
         run: supabase stop --no-backup
