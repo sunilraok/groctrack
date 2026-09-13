@@ -50,6 +50,26 @@ async function activePdf() {
   return document.save({ useObjectStreams: false });
 }
 
+async function encryptedPdf() {
+  const source = new TextDecoder("latin1").decode(await pdf());
+  return new Uint8Array(
+    Buffer.from(
+      source.replace(/(trailer\s*<<)/, "$1\n/Encrypt 1 0 R"),
+      "latin1",
+    ),
+  );
+}
+
+async function pdfWithBenignActiveContentText() {
+  const document = await PDFDocument.create();
+  const page = document.addPage([10, 10]);
+  const stream = document.context.register(
+    document.context.stream("% /JS and /OpenAction are benign text here\n"),
+  );
+  page.node.set(PDFName.Contents, stream);
+  return document.save({ useObjectStreams: false });
+}
+
 describe("validateReceiptFile", () => {
   it.each([
     ["receipt.jpg", "image/jpeg", "jpeg"],
@@ -240,14 +260,23 @@ describe("validateReceiptFile", () => {
         testFile("active.pdf", "application/pdf", await activePdf()),
       ),
     ).rejects.toThrow("active content");
-    const encryptedMarker = new TextEncoder().encode(
-      "%PDF-1.7\n/Encrypt true\n%%EOF\n",
-    );
     await expect(
       validateReceiptFile(
-        testFile("encrypted.pdf", "application/pdf", encryptedMarker),
+        testFile("encrypted.pdf", "application/pdf", await encryptedPdf()),
       ),
     ).rejects.toThrow("Encrypted PDFs");
+  });
+
+  it("accepts active-content names inside inert stream bytes", async () => {
+    await expect(
+      validateReceiptFile(
+        testFile(
+          "benign-text.pdf",
+          "application/pdf",
+          await pdfWithBenignActiveContentText(),
+        ),
+      ),
+    ).resolves.toMatchObject({ contentType: "application/pdf" });
   });
 
   it("rejects payloads above 10 MiB before reading bytes", async () => {

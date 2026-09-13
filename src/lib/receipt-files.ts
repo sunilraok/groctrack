@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { PDFDocument, ParseSpeeds } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFObject,
+  PDFStream,
+  ParseSpeeds,
+} from "pdf-lib";
 import sharp from "sharp";
 
 export const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
@@ -26,8 +34,16 @@ export class ReceiptFileError extends Error {}
 const MAX_IMAGE_PIXELS = 25_000_000;
 const MAX_IMAGE_EDGE = 12_000;
 const MAX_PDF_PAGES = 50;
-const unsafePdfFeature =
-  /\/(?:Encrypt|JavaScript|JS|Launch|EmbeddedFile|OpenAction|AA|RichMedia)\b/;
+const unsafePdfNames = new Set([
+  "Encrypt",
+  "JavaScript",
+  "JS",
+  "Launch",
+  "EmbeddedFile",
+  "OpenAction",
+  "AA",
+  "RichMedia",
+]);
 
 function isPngStructurallyBounded(bytes: Uint8Array) {
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -138,26 +154,48 @@ async function validatePdfStructure(bytes: Uint8Array) {
   if (!source.startsWith("%PDF-") || !/%%EOF[ \t\r\n]*$/.test(source)) {
     throw new ReceiptFileError("The PDF contains malformed or trailing data.");
   }
-  if (unsafePdfFeature.test(source)) {
-    throw new ReceiptFileError(
-      "Encrypted PDFs and PDFs with active content are not supported.",
-    );
-  }
   const document = await PDFDocument.load(bytes, {
     capNumbers: true,
-    ignoreEncryption: false,
+    ignoreEncryption: true,
     parseSpeed: ParseSpeeds.Fast,
     throwOnInvalidObject: true,
     updateMetadata: false,
   });
+  if (document.context.trailerInfo.Encrypt) {
+    throw new ReceiptFileError("Encrypted PDFs are not supported.");
+  }
   const pages = document.getPageCount();
   if (pages < 1 || pages > MAX_PDF_PAGES) {
     throw new ReceiptFileError(`PDF receipts must contain 1-${MAX_PDF_PAGES} pages.`);
   }
+
+  const visited = new Set<PDFObject>();
+  const containsUnsafeFeature = (object: PDFObject): boolean => {
+    if (visited.has(object)) return false;
+    visited.add(object);
+
+    if (object instanceof PDFName) {
+      return unsafePdfNames.has(object.decodeText());
+    }
+    if (object instanceof PDFStream) {
+      return containsUnsafeFeature(object.dict);
+    }
+    if (object instanceof PDFArray) {
+      return object.asArray().some(containsUnsafeFeature);
+    }
+    if (object instanceof PDFDict) {
+      return object.entries().some(
+        ([key, value]) =>
+          unsafePdfNames.has(key.decodeText()) || containsUnsafeFeature(value),
+      );
+    }
+    return false;
+  };
+
   if (
     document.context
       .enumerateIndirectObjects()
-      .some(([, object]) => unsafePdfFeature.test(object.toString()))
+      .some(([, object]) => containsUnsafeFeature(object))
   ) {
     throw new ReceiptFileError(
       "Encrypted PDFs and PDFs with active content are not supported.",
