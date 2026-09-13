@@ -8,6 +8,7 @@ export default async function SettingsPage() {
     .from("household_members")
     .select("user_id, role, joined_at, profiles(display_name)")
     .eq("household_id", current.household_id)
+    .is("revoked_at", null)
     .order("joined_at");
   if (error) throw new Error(`Unable to load household members: ${error.message}`);
 

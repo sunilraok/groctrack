@@ -179,11 +179,10 @@ export async function removeHouseholdMember(
   }
 
   try {
-    const { error } = await supabase
-      .from("household_members")
-      .delete()
-      .eq("household_id", current.household_id)
-      .eq("user_id", parsed.data.userId);
+    const { error } = await supabase.rpc("revoke_household_member", {
+      target_household_id: current.household_id,
+      target_user_id: parsed.data.userId,
+    });
     if (error) throw error;
     revalidatePath("/dashboard/settings");
     return { ok: true, data: undefined };
