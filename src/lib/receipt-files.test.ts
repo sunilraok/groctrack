@@ -96,6 +96,19 @@ describe("validateReceiptFile", () => {
     await expect(
       validateReceiptFile(testFile("receipt.png", "image/png", polyglot)),
     ).rejects.toThrow("trailing");
+
+    const jpeg = await image("jpeg");
+    const jpegPolyglot = new Uint8Array(jpeg.length + 10);
+    jpegPolyglot.set(jpeg);
+    jpegPolyglot.set(
+      new Uint8Array([0x3c, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x3e, 0xff, 0xd9]),
+      jpeg.length,
+    );
+    await expect(
+      validateReceiptFile(
+        testFile("receipt.jpg", "image/jpeg", jpegPolyglot),
+      ),
+    ).rejects.toThrow("trailing");
   });
 
   it("guards image dimensions and PDF page counts", async () => {

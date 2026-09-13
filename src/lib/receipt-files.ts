@@ -65,17 +65,46 @@ function isWebpStructurallyBounded(bytes: Uint8Array) {
   return offset === bytes.length;
 }
 
+function isJpegStructurallyBounded(bytes: Uint8Array) {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return false;
+  let offset = 2;
+  while (offset < bytes.length) {
+    if (bytes[offset] !== 0xff) return false;
+    while (bytes[offset] === 0xff) offset += 1;
+    const marker = bytes[offset];
+    offset += 1;
+    if (marker === 0xd9) return offset === bytes.length;
+    if (marker === 0x00 || marker === 0xd8) return false;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (offset + 2 > bytes.length) return false;
+    const length = (bytes[offset] << 8) | bytes[offset + 1];
+    if (length < 2 || offset + length > bytes.length) return false;
+    const scanDataStarts = marker === 0xda;
+    offset += length;
+    if (!scanDataStarts) continue;
+
+    while (offset < bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      const next = bytes[offset + 1];
+      if (next === 0x00 || (next >= 0xd0 && next <= 0xd7)) {
+        offset += 2;
+        continue;
+      }
+      break;
+    }
+  }
+  return false;
+}
+
 async function validateImageStructure(
   bytes: Uint8Array,
   contentType: Exclude<ReceiptContentType, "application/pdf">,
 ) {
   if (
-    (contentType === "image/jpeg" &&
-      (bytes.length < 4 ||
-        bytes[0] !== 0xff ||
-        bytes[1] !== 0xd8 ||
-        bytes.at(-2) !== 0xff ||
-        bytes.at(-1) !== 0xd9)) ||
+    (contentType === "image/jpeg" && !isJpegStructurallyBounded(bytes)) ||
     (contentType === "image/png" && !isPngStructurallyBounded(bytes)) ||
     (contentType === "image/webp" && !isWebpStructurallyBounded(bytes))
   ) {

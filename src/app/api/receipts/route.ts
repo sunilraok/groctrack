@@ -50,18 +50,29 @@ async function respondForExisting(
     receipt.status === "processing" ||
     (receipt.status === "failed" && receipt.extraction_retryable)
   ) {
+    let admin;
+    let extractor;
+    try {
+      admin = createAdminClient();
+      extractor = createReceiptExtractor();
+    } catch {
+      return NextResponse.json(
+        { error: "Receipt extraction is not configured." },
+        { status: 503 },
+      );
+    }
     try {
       const extraction = await processReceipt({
-        admin: createAdminClient(),
+        admin,
         authorizedClient: supabase,
-        extractor: createReceiptExtractor(),
+        extractor,
         receiptId: receipt.id,
       });
       return NextResponse.json({ receiptId: receipt.id, ...extraction });
     } catch {
       return NextResponse.json(
-        { error: "Receipt extraction is not configured." },
-        { status: 503 },
+        { error: "Unable to process receipt." },
+        { status: 500 },
       );
     }
   }
@@ -245,11 +256,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unable to register receipt." }, { status: 500 });
   }
 
-  const extraction = await processReceipt({
-    admin,
-    authorizedClient: supabase,
-    extractor,
-    receiptId,
-  });
-  return NextResponse.json({ receiptId, ...extraction }, { status: 201 });
+  try {
+    const extraction = await processReceipt({
+      admin,
+      authorizedClient: supabase,
+      extractor,
+      receiptId,
+    });
+    return NextResponse.json({ receiptId, ...extraction }, { status: 201 });
+  } catch {
+    return NextResponse.json(
+      { receiptId, error: "Unable to process receipt." },
+      { status: 500 },
+    );
+  }
 }
