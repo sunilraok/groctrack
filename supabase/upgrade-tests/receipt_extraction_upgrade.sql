@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(16);
+select plan(17);
 
 select is(
   (select count(*) from public.receipts),
@@ -120,6 +120,14 @@ select ok(
 select ok(
   not has_table_privilege('authenticated', 'public.receipts', 'insert'),
   '003 revokes direct authenticated receipt inserts'
+);
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.claim_receipt_extraction(uuid,uuid)',
+    'execute'
+  ),
+  '003 restricts extraction claims to the service role'
 );
 
 select * from finish();

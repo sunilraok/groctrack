@@ -5,9 +5,24 @@ set search_path = public, extensions;
 
 select plan(30);
 
-select has_column('public', 'receipts', 'upload_id');
-select has_column('public', 'receipts', 'content_sha256');
-select has_column('public', 'receipts', 'raw_extraction');
+select has_column(
+  'public',
+  'receipts',
+  'upload_id',
+  'receipts store idempotent upload identifiers'
+);
+select has_column(
+  'public',
+  'receipts',
+  'content_sha256',
+  'receipts store exact content digests'
+);
+select has_column(
+  'public',
+  'receipts',
+  'raw_extraction',
+  'receipts preserve raw structured extraction evidence'
+);
 
 select ok(
   not has_table_privilege('authenticated', 'public.receipts', 'insert'),

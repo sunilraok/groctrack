@@ -396,8 +396,10 @@ begin
 end;
 $$;
 
-revoke all on function public.claim_receipt_extraction(uuid, uuid) from public;
-revoke all on function public.fail_receipt_extraction(uuid, uuid, text, text, boolean) from public;
+revoke all on function public.claim_receipt_extraction(uuid, uuid)
+from public, anon, authenticated;
+revoke all on function public.fail_receipt_extraction(uuid, uuid, text, text, boolean)
+from public, anon, authenticated;
 revoke all on function public.complete_receipt_extraction(
   uuid,
   uuid,
@@ -407,8 +409,8 @@ revoke all on function public.complete_receipt_extraction(
   jsonb,
   jsonb,
   jsonb
-) from public;
-revoke all on function public.void_receipt(uuid) from public;
+) from public, anon, authenticated;
+revoke all on function public.void_receipt(uuid) from public, anon, authenticated;
 
 grant execute on function public.claim_receipt_extraction(uuid, uuid) to service_role;
 grant execute on function public.fail_receipt_extraction(uuid, uuid, text, text, boolean) to service_role;

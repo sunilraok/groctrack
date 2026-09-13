@@ -336,12 +336,14 @@ select throws_ok(
   null,
   'cross-household receipt inserts are rejected'
 );
-select is_empty(
+select throws_ok(
   $$update public.receipts
     set purchased_at = now()
     where id = '50000000-0000-0000-0000-000000000001'
     returning id$$,
-  'cross-household receipt updates affect no rows'
+  '42501',
+  null,
+  'authenticated clients cannot directly update receipts'
 );
 select throws_ok(
   $$insert into public.receipt_lines (
@@ -360,11 +362,13 @@ select throws_ok(
   null,
   'cross-household receipt line inserts are rejected'
 );
-select is_empty(
+select throws_ok(
   $$delete from public.receipt_lines
     where id = '60000000-0000-0000-0000-000000000001'
     returning id$$,
-  'cross-household receipt line deletes affect no rows'
+  '42501',
+  null,
+  'authenticated clients cannot directly delete receipt lines'
 );
 select is_empty(
   $$delete from public.household_invitations
@@ -1124,18 +1128,22 @@ select throws_ok(
   'Posted receipt lines are immutable',
   'receipt lines cannot be inserted after posting'
 );
-select is_empty(
+select throws_ok(
   $$update public.receipt_lines
     set raw_description = 'CHANGED'
     where id = '60000000-0000-0000-0000-000000000001'
     returning id$$,
-  'posted receipt line updates affect no rows'
+  '42501',
+  null,
+  'authenticated clients cannot directly update posted receipt lines'
 );
-select is_empty(
+select throws_ok(
   $$delete from public.receipt_lines
     where id = '60000000-0000-0000-0000-000000000001'
     returning id$$,
-  'posted receipt line deletes affect no rows'
+  '42501',
+  null,
+  'authenticated clients cannot directly delete posted receipt lines'
 );
 select is(
   (
