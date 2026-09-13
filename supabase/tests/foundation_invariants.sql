@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(51);
+select plan(57);
 
 select ok(
   not has_function_privilege('anon', 'public.create_household(text)', 'execute'),
@@ -602,6 +602,16 @@ select ok(
   ),
   'accepting a new invitation reactivates a revoked membership'
 );
+select is(
+  (
+    select role
+    from public.household_members
+    where household_id = '20000000-0000-0000-0000-000000000001'
+      and user_id = '10000000-0000-0000-0000-000000000002'
+  ),
+  'member'::public.household_role,
+  'a revoked member is reactivated with the invited role'
+);
 
 set local role authenticated;
 select set_config(
@@ -614,6 +624,80 @@ select throws_ok(
   'P0001',
   'Invitation is invalid or expired',
   'an accepted invitation cannot be replayed'
+);
+
+reset role;
+insert into public.household_invitations (
+  household_id,
+  email,
+  token_hash,
+  role,
+  invited_by,
+  expires_at
+)
+values
+  (
+    '20000000-0000-0000-0000-000000000001',
+    'owner-a@example.test',
+    encode(extensions.digest('owner-self-member-token', 'sha256'), 'hex'),
+    'member',
+    '10000000-0000-0000-0000-000000000001',
+    now() + interval '1 day'
+  ),
+  (
+    '20000000-0000-0000-0000-000000000001',
+    'member-a@example.test',
+    encode(extensions.digest('active-member-owner-token', 'sha256'), 'hex'),
+    'owner',
+    '10000000-0000-0000-0000-000000000001',
+    now() + interval '1 day'
+  );
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
+select throws_ok(
+  $$select public.accept_household_invitation('owner-self-member-token')$$,
+  'P0001',
+  'User is already an active household member',
+  'a sole owner cannot demote themselves through an invitation'
+);
+select is(
+  (
+    select role
+    from public.household_members
+    where household_id = '20000000-0000-0000-0000-000000000001'
+      and user_id = '10000000-0000-0000-0000-000000000001'
+  ),
+  'owner'::public.household_role,
+  'a rejected self-invitation leaves the sole owner unchanged'
+);
+
+reset role;
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"10000000-0000-0000-0000-000000000002","role":"authenticated"}',
+  true
+);
+select throws_ok(
+  $$select public.accept_household_invitation('active-member-owner-token')$$,
+  'P0001',
+  'User is already an active household member',
+  'an active member cannot change role through an invitation'
+);
+select is(
+  (
+    select role
+    from public.household_members
+    where household_id = '20000000-0000-0000-0000-000000000001'
+      and user_id = '10000000-0000-0000-0000-000000000002'
+  ),
+  'member'::public.household_role,
+  'a rejected active-member invitation preserves the existing role'
 );
 
 reset role;
@@ -816,6 +900,31 @@ select ok(
       and prosecdef
   ),
   'owner role changes use a transactional security-definer RPC'
+);
+select ok(
+  strpos(
+    pg_get_functiondef(
+      'public.accept_household_invitation(text)'::regprocedure
+    ),
+    'from public.households'
+  ) < strpos(
+    pg_get_functiondef(
+      'public.accept_household_invitation(text)'::regprocedure
+    ),
+    'from public.household_members'
+  )
+  and strpos(
+    pg_get_functiondef(
+      'public.accept_household_invitation(text)'::regprocedure
+    ),
+    'from public.household_members'
+  ) < strpos(
+    pg_get_functiondef(
+      'public.accept_household_invitation(text)'::regprocedure
+    ),
+    'select * into invitation'
+  ),
+  'invitation acceptance locks household, membership, then invitation'
 );
 select ok(
   not public.is_finite_numeric('Infinity'::numeric),

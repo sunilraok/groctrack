@@ -688,9 +688,12 @@ set search_path = ''
 as $$
 declare
   invitation public.household_invitations%rowtype;
+  invitation_household_id uuid;
+  current_membership public.household_members%rowtype;
   caller uuid := auth.uid();
   caller_email text;
   caller_email_confirmed_at timestamptz;
+  invitation_token_hash text;
 begin
   if caller is null then
     raise exception 'Authentication required';
@@ -705,19 +708,56 @@ begin
     raise exception 'A confirmed email address is required';
   end if;
 
+  invitation_token_hash := encode(
+    extensions.digest(invitation_token, 'sha256'),
+    'hex'
+  );
+
+  select household_id into invitation_household_id
+  from public.household_invitations
+  where token_hash = invitation_token_hash;
+
+  if invitation_household_id is null then
+    raise exception 'Invitation is invalid or expired';
+  end if;
+
+  perform 1
+  from public.households
+  where id = invitation_household_id
+  for update;
+
+  if not found then
+    raise exception 'Invitation is invalid or expired';
+  end if;
+
+  select * into current_membership
+  from public.household_members
+  where household_id = invitation_household_id
+    and user_id = caller
+  for update;
+
   select * into invitation
   from public.household_invitations
-  where token_hash = encode(extensions.digest(invitation_token, 'sha256'), 'hex')
-    and accepted_at is null
-    and revoked_at is null
-    and expires_at > now()
+  where token_hash = invitation_token_hash
   for update;
 
   if invitation.id is null then
     raise exception 'Invitation is invalid or expired';
   end if;
+  if invitation.household_id <> invitation_household_id
+    or invitation.accepted_at is not null
+    or invitation.revoked_at is not null
+    or invitation.expires_at <= now()
+  then
+    raise exception 'Invitation is invalid or expired';
+  end if;
   if lower(invitation.email) <> lower(caller_email) then
     raise exception 'Invitation belongs to another email address';
+  end if;
+  if current_membership.user_id is not null
+    and current_membership.revoked_at is null
+  then
+    raise exception 'User is already an active household member';
   end if;
 
   insert into public.household_members (household_id, user_id, role)
