@@ -245,6 +245,7 @@ select throws_ok(
     'consumption',
     1,
     'kg',
+    '90000000-0000-4000-8000-000000000001',
     null
   )$$,
   'P0001',
@@ -505,6 +506,7 @@ select throws_ok(
     'adjustment',
     'NaN'::numeric,
     'g',
+    '90000000-0000-4000-8000-000000000002',
     null
   )$$,
   'P0001',

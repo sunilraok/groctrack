@@ -67,6 +67,7 @@ export interface InventoryTransaction {
   original_unit: string | null;
   source_receipt_line_id: string | null;
   reverses_transaction_id: string | null;
+  operation_id: string | null;
   note: string | null;
   created_by: string;
   created_at: string;

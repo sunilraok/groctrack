@@ -71,7 +71,8 @@ in GitHub Actions for pull requests and pushes to `main`.
 The database tests exercise cross-household RLS, owner-only invitations,
 email-bound invitation acceptance, profile visibility between members, exact
 unit conversion, append-only inventory transactions, transactional balance
-projection, and duplicate purchase/reversal protection.
+projection, idempotent manual changes, and duplicate purchase/reversal
+protection.
 
 The `receipts` storage bucket is private. Object names must begin with the
 household UUID, for example

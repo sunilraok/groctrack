@@ -141,6 +141,7 @@ export async function createGrocery(
 
 const inventoryChangeSchema = z.object({
   groceryItemId: z.string().uuid(),
+  operationId: z.string().uuid(),
   type: z.enum(["consumption", "adjustment"]),
   quantity: z.string().trim().refine((value) => signedDecimal.test(value)),
   unit: z.string(),
@@ -183,6 +184,7 @@ export async function recordInventoryChange(
       change_type: parsed.data.type,
       entered_quantity: parsed.data.quantity,
       entered_unit: parsed.data.unit,
+      client_operation_id: parsed.data.operationId,
       change_note: parsed.data.note || null,
     });
     if (error) throw error;

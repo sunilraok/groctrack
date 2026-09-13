@@ -87,13 +87,28 @@ export function GroceryForm() {
 
 export function InventoryChangeForm({ item }: { item: GroceryItem }) {
   const [state, action, pending] = useActionState(recordInventoryChange, null);
+  const operationIdRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (state?.ok && operationIdRef.current) {
+      operationIdRef.current.value = "";
+    }
+  }, [state]);
   const compatibleUnits = Object.entries(unitDefinitions).filter(
     ([, definition]) => definition.dimension === item.unit_dimension,
   ) as Array<[InventoryUnit, (typeof unitDefinitions)[InventoryUnit]]>;
 
   return (
-    <form action={action} className="form-grid">
+    <form
+      action={action}
+      className="form-grid"
+      onSubmit={() => {
+        if (operationIdRef.current && !operationIdRef.current.value) {
+          operationIdRef.current.value = crypto.randomUUID();
+        }
+      }}
+    >
       <input type="hidden" name="groceryItemId" value={item.id} />
+      <input name="operationId" ref={operationIdRef} type="hidden" />
       <label>
         Change type
         <select name="type" defaultValue="consumption">

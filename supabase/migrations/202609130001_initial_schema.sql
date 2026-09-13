@@ -269,10 +269,6 @@ create table public.inventory_transactions (
   check (
     (transaction_type = 'reversal') = (reverses_transaction_id is not null)
   ),
-  check (
-    source_receipt_line_id is null
-    or transaction_type = 'purchase'
-  ),
   unique (household_id, id),
   foreign key (household_id, grocery_item_id)
     references public.grocery_items(household_id, id),
@@ -306,47 +302,6 @@ create table public.inventory_balances (
   foreign key (household_id, grocery_item_id)
     references public.grocery_items(household_id, id) on delete cascade
 );
-
-create view public.inventory_stock
-with (security_invoker = true)
-as
-select
-  grocery_items.id,
-  grocery_items.household_id,
-  grocery_items.name,
-  grocery_items.normalized_name,
-  grocery_items.category,
-  grocery_items.unit_dimension,
-  grocery_items.base_unit,
-  grocery_items.low_stock_threshold::text as low_stock_threshold,
-  grocery_items.is_active,
-  grocery_items.created_by,
-  grocery_items.created_at,
-  grocery_items.updated_at,
-  coalesce(inventory_balances.quantity_base, 0)::text as quantity_base,
-  inventory_balances.updated_at as balance_updated_at
-from public.grocery_items
-left join public.inventory_balances
-  on inventory_balances.household_id = grocery_items.household_id
-  and inventory_balances.grocery_item_id = grocery_items.id;
-
-create view public.inventory_transaction_history
-with (security_invoker = true)
-as
-select
-  id,
-  household_id,
-  grocery_item_id,
-  transaction_type,
-  quantity_base::text as quantity_base,
-  original_quantity::text as original_quantity,
-  original_unit,
-  source_receipt_line_id,
-  reverses_transaction_id,
-  note,
-  created_by,
-  created_at
-from public.inventory_transactions;
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -905,20 +860,6 @@ create trigger inventory_transaction_apply_balance
 after insert on public.inventory_transactions
 for each row execute function public.apply_inventory_balance();
 
-create or replace function public.prevent_inventory_transaction_mutation()
-returns trigger
-language plpgsql
-set search_path = ''
-as $$
-begin
-  raise exception 'Inventory transactions are append-only';
-end;
-$$;
-
-create trigger inventory_transactions_prevent_update_delete
-before update or delete on public.inventory_transactions
-for each row execute function public.prevent_inventory_transaction_mutation();
-
 create or replace function public.to_base_quantity(
   quantity numeric,
   unit text,
@@ -1135,9 +1076,6 @@ begin
     raise exception 'Unit does not match the grocery item';
   end if;
   if change_type = 'consumption' then
-    if entered_quantity < 0 then
-      raise exception 'Consumption quantity must be positive';
-    end if;
     base_quantity := -base_quantity;
   elsif entered_quantity < 0 then
     base_quantity := -base_quantity;
@@ -1269,8 +1207,6 @@ grant select, insert, update on public.receipts to authenticated;
 grant select, insert, update, delete on public.receipt_lines to authenticated;
 grant select on public.inventory_transactions to authenticated;
 grant select on public.inventory_balances to authenticated;
-grant select on public.inventory_stock to authenticated;
-grant select on public.inventory_transaction_history to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.households enable row level security;
