@@ -34,6 +34,28 @@ begin
   if (new.unit_dimension, new.base_unit)
       is distinct from (old.unit_dimension, old.base_unit)
   then
+    perform pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended(old.id::text, 0)
+    );
+
+    if (
+      exists (
+        select 1
+        from public.inventory_transactions
+        where household_id = old.household_id
+          and grocery_item_id = old.id
+      )
+      or exists (
+        select 1
+        from public.inventory_balances
+        where household_id = old.household_id
+          and grocery_item_id = old.id
+      )
+    )
+    then
+      raise exception 'Units cannot change after inventory history exists';
+    end if;
+
     raise exception 'Grocery item units are immutable';
   end if;
   return new;

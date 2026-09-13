@@ -1,6 +1,6 @@
 begin;
 
-select plan(65);
+select plan(66);
 
 insert into auth.users (
   instance_id,
@@ -420,6 +420,15 @@ select
   '11111111-1111-4111-8111-111111111111'
 from inventory_test_ids;
 
+select throws_ok(
+  $$update public.grocery_items
+    set base_unit = 'l'
+    where id = 'bbbbbbbb-3333-4333-8333-bbbbbbbbbbbb'$$,
+  'P0001',
+  'Grocery item units are immutable',
+  'a grocery base unit is immutable before inventory history exists'
+);
+
 select lives_ok(
   $$select public.record_inventory_change(
     'bbbbbbbb-3333-4333-8333-bbbbbbbbbbbb',
@@ -447,7 +456,7 @@ select throws_ok(
     set unit_dimension = 'volume'
     where id = '33333333-3333-4333-8333-333333333333'$$,
   'P0001',
-  'Grocery item units are immutable',
+  'Units cannot change after inventory history exists',
   'a member cannot reinterpret a grocery unit dimension'
 );
 
@@ -456,7 +465,7 @@ select throws_ok(
     set base_unit = 'ml'
     where id = '33333333-3333-4333-8333-333333333333'$$,
   'P0001',
-  'Grocery item units are immutable',
+  'Units cannot change after inventory history exists',
   'a member cannot reinterpret a grocery base unit'
 );
 
@@ -474,7 +483,7 @@ select throws_ok(
     set household_id = gen_random_uuid()
     where id = '33333333-3333-4333-8333-333333333333'$$,
   'P0001',
-  'Grocery item household and creator are immutable',
+  'A record cannot be moved between households',
   'a member cannot move a grocery to another household'
 );
 
@@ -531,8 +540,8 @@ select results_eq(
   $$select
       'reversal'::text,
       -1250::numeric,
-      null::numeric,
-      null::text,
+      1.25::numeric,
+      'kg'::text,
       '11111111-1111-4111-8111-111111111111'::uuid,
       adjustment_id,
       null::uuid
