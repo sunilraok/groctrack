@@ -52,9 +52,12 @@ npm run typecheck
 npm test
 npm run build
 npx supabase db lint
+npx supabase test db
 ```
 
 The `receipts` storage bucket is private. Object names must begin with the
 household UUID, for example
 `<household-id>/<receipt-id>/original.jpg`; storage policies use that first path
-segment to enforce household access.
+segment to enforce household access. Email confirmation is enabled locally and
+must remain required in production so invitation acceptance proves control of
+the invited mailbox.

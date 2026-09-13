@@ -38,8 +38,13 @@ create table public.household_members (
   user_id uuid not null references public.profiles(id) on delete cascade,
   role public.household_role not null default 'member',
   joined_at timestamptz not null default now(),
+  revoked_at timestamptz,
   primary key (household_id, user_id)
 );
+
+create index household_members_active_user_idx
+  on public.household_members (user_id, household_id)
+  where revoked_at is null;
 
 create table public.household_invitations (
   id uuid primary key default gen_random_uuid(),
@@ -50,15 +55,17 @@ create table public.household_invitations (
   invited_by uuid not null references public.profiles(id),
   expires_at timestamptz not null,
   accepted_at timestamptz,
+  revoked_at timestamptz,
   created_at timestamptz not null default now(),
   check (expires_at > created_at),
+  check (accepted_at is null or revoked_at is null),
   foreign key (household_id, invited_by)
     references public.household_members(household_id, user_id)
 );
 
 create unique index household_invitations_active_email_idx
   on public.household_invitations (household_id, lower(email))
-  where accepted_at is null;
+  where accepted_at is null and revoked_at is null;
 
 create table public.merchants (
   id uuid primary key default gen_random_uuid(),
@@ -209,8 +216,7 @@ create table public.inventory_transactions (
     or transaction_type in ('adjustment', 'reversal')
   ),
   check (
-    transaction_type = 'reversal'
-    or reverses_transaction_id is null
+    (transaction_type = 'reversal') = (reverses_transaction_id is not null)
   ),
   unique (household_id, id),
   foreign key (household_id, grocery_item_id)
@@ -300,6 +306,85 @@ create trigger receipt_lines_prevent_household_change
 before update on public.receipt_lines
 for each row execute function public.prevent_household_change();
 
+create or replace function public.lock_mutable_receipt()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  target_receipt_id uuid;
+  target_status public.receipt_status;
+begin
+  if tg_op = 'UPDATE' and new.receipt_id <> old.receipt_id then
+    raise exception 'A receipt line cannot be moved to another receipt';
+  end if;
+
+  target_receipt_id := case when tg_op = 'DELETE' then old.receipt_id else new.receipt_id end;
+
+  select status into target_status
+  from public.receipts
+  where id = target_receipt_id
+  for update;
+
+  if target_status is null then
+    raise exception 'Receipt not found';
+  end if;
+  if target_status = 'posted' then
+    raise exception 'Posted receipt lines are immutable';
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger receipt_lines_lock_mutable_receipt
+before insert or update or delete on public.receipt_lines
+for each row execute function public.lock_mutable_receipt();
+
+create or replace function public.protect_grocery_item_units()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if (new.unit_dimension, new.base_unit)
+      is distinct from (old.unit_dimension, old.base_unit)
+  then
+    perform pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended(old.id::text, 0)
+    );
+
+    if (
+      exists (
+        select 1
+        from public.inventory_transactions
+        where household_id = old.household_id
+          and grocery_item_id = old.id
+      )
+      or exists (
+        select 1
+        from public.inventory_balances
+        where household_id = old.household_id
+          and grocery_item_id = old.id
+      )
+    )
+    then
+      raise exception 'Units cannot change after inventory history exists';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger grocery_items_protect_units
+before update on public.grocery_items
+for each row execute function public.protect_grocery_item_units();
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -329,6 +414,7 @@ as $$
     from public.household_members
     where household_id = target_household_id
       and user_id = (select auth.uid())
+      and revoked_at is null
   );
 $$;
 
@@ -345,7 +431,124 @@ as $$
     where household_id = target_household_id
       and user_id = (select auth.uid())
       and role = 'owner'
+      and revoked_at is null
   );
+$$;
+
+create or replace function public.set_household_member_role(
+  target_household_id uuid,
+  target_user_id uuid,
+  new_role public.household_role
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  current_membership public.household_members%rowtype;
+begin
+  perform 1
+  from public.households
+  where id = target_household_id
+  for update;
+
+  if not found or not public.is_household_owner(target_household_id) then
+    raise exception 'Household not found';
+  end if;
+
+  select * into current_membership
+  from public.household_members
+  where household_id = target_household_id
+    and user_id = target_user_id
+    and revoked_at is null
+  for update;
+
+  if current_membership.user_id is null then
+    raise exception 'Active household member not found';
+  end if;
+  if current_membership.role = 'owner'
+    and new_role <> 'owner'
+    and not exists (
+      select 1
+      from public.household_members
+      where household_id = target_household_id
+        and user_id <> target_user_id
+        and role = 'owner'
+        and revoked_at is null
+    )
+  then
+    raise exception 'A household must have at least one active owner';
+  end if;
+
+  update public.household_members
+  set role = new_role
+  where household_id = target_household_id
+    and user_id = target_user_id;
+end;
+$$;
+
+create or replace function public.revoke_household_member(
+  target_household_id uuid,
+  target_user_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  current_membership public.household_members%rowtype;
+  target_email text;
+begin
+  perform 1
+  from public.households
+  where id = target_household_id
+  for update;
+
+  if not found or not public.is_household_owner(target_household_id) then
+    raise exception 'Household not found';
+  end if;
+
+  select * into current_membership
+  from public.household_members
+  where household_id = target_household_id
+    and user_id = target_user_id
+    and revoked_at is null
+  for update;
+
+  if current_membership.user_id is null then
+    raise exception 'Active household member not found';
+  end if;
+  if current_membership.role = 'owner'
+    and not exists (
+      select 1
+      from public.household_members
+      where household_id = target_household_id
+        and user_id <> target_user_id
+        and role = 'owner'
+        and revoked_at is null
+    )
+  then
+    raise exception 'A household must have at least one active owner';
+  end if;
+
+  update public.household_members
+  set revoked_at = now()
+  where household_id = target_household_id
+    and user_id = target_user_id;
+
+  select email into target_email
+  from auth.users
+  where id = target_user_id;
+
+  update public.household_invitations
+  set revoked_at = now()
+  where household_id = target_household_id
+    and accepted_at is null
+    and revoked_at is null
+    and lower(email) = lower(target_email);
+end;
 $$;
 
 create or replace function public.create_household(household_name text)
@@ -386,16 +589,26 @@ declare
   invitation public.household_invitations%rowtype;
   caller uuid := auth.uid();
   caller_email text;
+  caller_email_confirmed_at timestamptz;
 begin
   if caller is null then
     raise exception 'Authentication required';
   end if;
 
-  select email into caller_email from auth.users where id = caller;
+  select email, email_confirmed_at
+  into caller_email, caller_email_confirmed_at
+  from auth.users
+  where id = caller;
+
+  if caller_email is null or caller_email_confirmed_at is null then
+    raise exception 'A confirmed email address is required';
+  end if;
+
   select * into invitation
   from public.household_invitations
   where token_hash = encode(extensions.digest(invitation_token, 'sha256'), 'hex')
     and accepted_at is null
+    and revoked_at is null
     and expires_at > now()
   for update;
 
@@ -408,7 +621,11 @@ begin
 
   insert into public.household_members (household_id, user_id, role)
   values (invitation.household_id, caller, invitation.role)
-  on conflict (household_id, user_id) do nothing;
+  on conflict (household_id, user_id)
+  do update set
+    role = excluded.role,
+    joined_at = now(),
+    revoked_at = null;
 
   update public.household_invitations
   set accepted_at = now()
@@ -521,6 +738,16 @@ begin
     raise exception 'Receipt must contain at least one line';
   end if;
 
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(grocery_item_id::text, 0)
+  )
+  from (
+    select distinct grocery_item_id
+    from public.receipt_lines
+    where receipt_id = target_receipt_id
+    order by grocery_item_id
+  ) as receipt_items;
+
   for receipt_line in
     select * from public.receipt_lines
     where receipt_id = target_receipt_id
@@ -618,6 +845,10 @@ declare
   new_transaction_id uuid;
   base_quantity numeric(18, 6);
 begin
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(target_grocery_item_id::text, 0)
+  );
+
   select * into target_item
   from public.grocery_items
   where id = target_grocery_item_id;
@@ -672,10 +903,80 @@ begin
 end;
 $$;
 
+create or replace function public.reverse_inventory_transaction(
+  target_transaction_id uuid,
+  reversal_note text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  target_transaction public.inventory_transactions%rowtype;
+  new_transaction_id uuid;
+begin
+  select * into target_transaction
+  from public.inventory_transactions
+  where id = target_transaction_id
+  for update;
+
+  if target_transaction.id is null
+    or not public.is_household_member(target_transaction.household_id)
+  then
+    raise exception 'Inventory transaction not found';
+  end if;
+  if target_transaction.transaction_type = 'reversal' then
+    raise exception 'A reversal cannot be reversed';
+  end if;
+  if exists (
+    select 1
+    from public.inventory_transactions
+    where reverses_transaction_id = target_transaction.id
+  ) then
+    raise exception 'Inventory transaction is already reversed';
+  end if;
+
+  insert into public.inventory_transactions (
+    household_id,
+    grocery_item_id,
+    transaction_type,
+    quantity_base,
+    original_quantity,
+    original_unit,
+    reverses_transaction_id,
+    note,
+    created_by
+  )
+  values (
+    target_transaction.household_id,
+    target_transaction.grocery_item_id,
+    'reversal',
+    -target_transaction.quantity_base,
+    target_transaction.original_quantity,
+    target_transaction.original_unit,
+    target_transaction.id,
+    nullif(trim(reversal_note), ''),
+    auth.uid()
+  )
+  returning id into new_transaction_id;
+
+  return new_transaction_id;
+end;
+$$;
+
 revoke all on all functions in schema public from public;
 
 grant execute on function public.create_household(text) to authenticated;
 grant execute on function public.accept_household_invitation(text) to authenticated;
+grant execute on function public.is_household_member(uuid) to authenticated;
+grant execute on function public.is_household_owner(uuid) to authenticated;
+grant execute on function public.set_household_member_role(
+  uuid,
+  uuid,
+  public.household_role
+) to authenticated;
+grant execute on function public.revoke_household_member(uuid, uuid) to authenticated;
 grant execute on function public.post_receipt(uuid) to authenticated;
 grant execute on function public.record_inventory_change(
   uuid,
@@ -684,10 +985,11 @@ grant execute on function public.record_inventory_change(
   text,
   text
 ) to authenticated;
+grant execute on function public.reverse_inventory_transaction(uuid, text) to authenticated;
 
 grant select, update on public.profiles to authenticated;
 grant select, update on public.households to authenticated;
-grant select, update, delete on public.household_members to authenticated;
+grant select on public.household_members to authenticated;
 grant select, insert, update, delete on public.household_invitations to authenticated;
 grant select, insert, update on public.merchants to authenticated;
 grant select, insert, update on public.grocery_items to authenticated;
@@ -728,17 +1030,6 @@ with check (public.is_household_owner(id));
 create policy "Members can read memberships"
 on public.household_members for select to authenticated
 using (public.is_household_member(household_id));
-create policy "Owners can update memberships"
-on public.household_members for update to authenticated
-using (public.is_household_owner(household_id))
-with check (public.is_household_owner(household_id));
-create policy "Owners can remove memberships"
-on public.household_members for delete to authenticated
-using (
-  public.is_household_owner(household_id)
-  and user_id <> (select auth.uid())
-);
-
 create policy "Owners can manage invitations"
 on public.household_invitations for all to authenticated
 using (public.is_household_owner(household_id))
@@ -874,6 +1165,7 @@ using (
     from public.household_members
     where user_id = (select auth.uid())
       and household_id::text = (storage.foldername(name))[1]
+      and revoked_at is null
   )
 );
 create policy "Members can upload household receipts"
@@ -885,6 +1177,7 @@ with check (
     from public.household_members
     where user_id = (select auth.uid())
       and household_id::text = (storage.foldername(name))[1]
+      and revoked_at is null
   )
 );
 create policy "Uploaders can remove unposted receipt images"
@@ -896,5 +1189,6 @@ using (
     where receipts.image_path = name
       and receipts.uploaded_by = (select auth.uid())
       and receipts.status <> 'posted'
+      and public.is_household_member(receipts.household_id)
   )
 );
