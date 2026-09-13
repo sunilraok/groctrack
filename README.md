@@ -51,9 +51,15 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
+npm audit --omit=dev --audit-level=high
+npx supabase start
+npx supabase db reset
 npx supabase db lint
 npx supabase test db
+npx supabase stop --no-backup
 ```
+
+The same checks run in GitHub Actions for pull requests and pushes to `main`.
 
 The `receipts` storage bucket is private. Object names must begin with the
 household UUID, for example
