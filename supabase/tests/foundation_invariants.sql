@@ -555,6 +555,8 @@ select throws_ok(
   'Quantity must be finite and greater than zero',
   'manual inventory changes reject NaN'
 );
+
+reset role;
 select throws_ok(
   $$insert into public.receipt_lines (
       household_id,
@@ -579,6 +581,12 @@ select throws_ok(
   'receipt line constraints reject NaN'
 );
 
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
 select lives_ok(
   $$select public.revoke_household_member(
     '20000000-0000-0000-0000-000000000001',
@@ -1090,6 +1098,8 @@ select throws_ok(
   'Receipt is not ready to post',
   'a receipt cannot be posted twice'
 );
+
+reset role;
 select throws_ok(
   $$insert into public.receipt_lines (
       household_id,
@@ -1106,6 +1116,13 @@ select throws_ok(
   'P0001',
   'Posted receipt lines are immutable',
   'receipt lines cannot be inserted after posting'
+);
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
 );
 select throws_ok(
   $$update public.receipt_lines
