@@ -1,6 +1,6 @@
 begin;
 
-select plan(40);
+select plan(45);
 
 insert into auth.users (
   instance_id,
@@ -121,7 +121,7 @@ update inventory_test_ids
 set adjustment_id = public.record_inventory_change(
   '33333333-3333-4333-8333-333333333333',
   'adjustment',
-  1.25,
+  1.250000,
   'kg',
   '77777777-7777-4777-8777-777777777777',
   'Opening stock'
@@ -147,13 +147,13 @@ select is(
   public.record_inventory_change(
     '33333333-3333-4333-8333-333333333333',
     'adjustment',
-    1.25,
+    1.250000,
     'kg',
     '77777777-7777-4777-8777-777777777777',
     'Opening stock'
   ),
   adjustment_id,
-  'replaying an operation returns its original transaction'
+  'a valid six-decimal operation replays to its original transaction'
 )
 from inventory_test_ids;
 
@@ -195,6 +195,50 @@ select throws_ok(
   'P0001',
   'Operation ID was already used for a different inventory change',
   'an operation ID cannot be reused for another payload'
+);
+
+select throws_ok(
+  $$select public.record_inventory_change(
+    '33333333-3333-4333-8333-333333333333',
+    'adjustment',
+    1.0000001,
+    'g',
+    '77777777-1111-4111-8111-777777777777',
+    'Over-scale'
+  )$$,
+  'P0001',
+  'Quantity must have at most six fractional digits',
+  'an over-scale quantity is rejected before its initial execution'
+);
+
+select throws_ok(
+  $$select public.record_inventory_change(
+    '33333333-3333-4333-8333-333333333333',
+    'adjustment',
+    1.0000001,
+    'g',
+    '77777777-1111-4111-8111-777777777777',
+    'Over-scale'
+  )$$,
+  'P0001',
+  'Quantity must have at most six fractional digits',
+  'an identical over-scale retry is rejected consistently'
+);
+
+select is(
+  (
+    select count(*)
+    from public.inventory_transactions
+    where operation_id = '77777777-1111-4111-8111-777777777777'
+  ),
+  0::bigint,
+  'an over-scale operation creates no ledger entry'
+);
+
+select is(
+  (select quantity_base from public.inventory_balances where grocery_item_id = '33333333-3333-4333-8333-333333333333'),
+  1250::numeric,
+  'an over-scale operation does not mutate the projected balance'
 );
 
 select lives_ok(
@@ -314,11 +358,20 @@ select is(
 
 select throws_ok(
   $$update public.grocery_items
-    set unit_dimension = 'volume', base_unit = 'ml'
+    set unit_dimension = 'volume'
     where id = '33333333-3333-4333-8333-333333333333'$$,
   'P0001',
   'Grocery item units are immutable',
-  'a member cannot reinterpret grocery units'
+  'a member cannot reinterpret a grocery unit dimension'
+);
+
+select throws_ok(
+  $$update public.grocery_items
+    set base_unit = 'ml'
+    where id = '33333333-3333-4333-8333-333333333333'$$,
+  'P0001',
+  'Grocery item units are immutable',
+  'a member cannot reinterpret a grocery base unit'
 );
 
 select throws_ok(

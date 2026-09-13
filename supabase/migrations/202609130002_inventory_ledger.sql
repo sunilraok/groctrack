@@ -40,6 +40,13 @@ begin
 end;
 $$;
 
+drop trigger if exists grocery_items_protect_units
+on public.grocery_items;
+
+create trigger grocery_items_protect_units
+before update on public.grocery_items
+for each row execute function public.protect_grocery_item_units();
+
 create or replace function public.prevent_inventory_transaction_mutation()
 returns trigger
 language plpgsql
@@ -88,6 +95,12 @@ begin
   end if;
   if client_operation_id is null then
     raise exception 'Operation ID is required';
+  end if;
+  if entered_quantity is not null
+    and public.is_finite_numeric(entered_quantity)
+    and scale(entered_quantity) > 6
+  then
+    raise exception 'Quantity must have at most six fractional digits';
   end if;
 
   perform pg_catalog.pg_advisory_xact_lock(
