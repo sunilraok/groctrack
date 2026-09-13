@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(77);
+select plan(86);
 
 select ok(
   not has_function_privilege('anon', 'public.create_household(text)', 'execute'),
@@ -743,7 +743,7 @@ select throws_ok(
   $$update public.receipts
     set total = 'Infinity'::numeric
     where id = '50000000-0000-0000-0000-000000000002'$$,
-  '23514',
+  '22003',
   null,
   'receipt totals reject positive infinity'
 );
@@ -762,7 +762,7 @@ select throws_ok(
       'INVALID WEIGHT',
       '-Infinity'::numeric
     )$$,
-  '23514',
+  '22003',
   null,
   'receipt line weights reject negative infinity'
 );
@@ -800,7 +800,7 @@ select throws_ok(
       'Infinity'::numeric,
       '10000000-0000-0000-0000-000000000003'
     )$$,
-  '23514',
+  '22003',
   null,
   'inventory transactions reject positive infinity'
 );
@@ -815,9 +815,54 @@ select throws_ok(
       '40000000-0000-0000-0000-000000000002',
       '-Infinity'::numeric
     )$$,
-  '23514',
+  '22003',
   null,
   'inventory balances reject negative infinity'
+);
+select is(
+  (
+    select low_stock_threshold
+    from public.grocery_items
+    where id = '40000000-0000-0000-0000-000000000002'
+  ),
+  null::numeric,
+  'invalid thresholds do not mutate grocery items'
+);
+select is(
+  (
+    select total
+    from public.receipts
+    where id = '50000000-0000-0000-0000-000000000002'
+  ),
+  null::numeric,
+  'invalid totals do not mutate receipts'
+);
+select is(
+  (
+    select count(*)
+    from public.receipt_lines
+    where receipt_id = '50000000-0000-0000-0000-000000000002'
+  ),
+  0::bigint,
+  'invalid receipt line numerics create no lines'
+);
+select is(
+  (
+    select count(*)
+    from public.inventory_transactions
+    where household_id = '20000000-0000-0000-0000-000000000002'
+  ),
+  0::bigint,
+  'invalid transaction numerics create no ledger rows'
+);
+select is(
+  (
+    select count(*)
+    from public.inventory_balances
+    where household_id = '20000000-0000-0000-0000-000000000002'
+  ),
+  0::bigint,
+  'invalid balance numerics create no projections'
 );
 
 select ok(
@@ -1018,20 +1063,55 @@ select throws_ok(
   'Posted receipt lines are immutable',
   'receipt lines cannot be inserted after posting'
 );
-select throws_ok(
+select is_empty(
   $$update public.receipt_lines
     set raw_description = 'CHANGED'
-    where id = '60000000-0000-0000-0000-000000000001'$$,
-  'P0001',
-  'Posted receipt lines are immutable',
-  'receipt lines cannot be updated after posting'
+    where id = '60000000-0000-0000-0000-000000000001'
+    returning id$$,
+  'posted receipt line updates affect no rows'
 );
-select throws_ok(
+select is_empty(
   $$delete from public.receipt_lines
-    where id = '60000000-0000-0000-0000-000000000001'$$,
-  'P0001',
-  'Posted receipt lines are immutable',
-  'receipt lines cannot be deleted after posting'
+    where id = '60000000-0000-0000-0000-000000000001'
+    returning id$$,
+  'posted receipt line deletes affect no rows'
+);
+select is(
+  (
+    select raw_description
+    from public.receipt_lines
+    where id = '60000000-0000-0000-0000-000000000001'
+  ),
+  'RICE 1KG'::text,
+  'posted receipt evidence remains unchanged'
+);
+select is(
+  (
+    select count(*)
+    from public.receipt_lines
+    where receipt_id = '50000000-0000-0000-0000-000000000001'
+  ),
+  1::bigint,
+  'posted receipt retains its original line count'
+);
+select is(
+  (
+    select count(*)
+    from public.inventory_transactions
+    where source_receipt_line_id = '60000000-0000-0000-0000-000000000001'
+  ),
+  1::bigint,
+  'posted receipt mutation attempts create no extra ledger entries'
+);
+select is(
+  (
+    select quantity_base
+    from public.inventory_balances
+    where household_id = '20000000-0000-0000-0000-000000000001'
+      and grocery_item_id = '40000000-0000-0000-0000-000000000001'
+  ),
+  1000::numeric,
+  'posted receipt mutation attempts leave the balance unchanged'
 );
 select throws_ok(
   $$update public.grocery_items
