@@ -224,7 +224,10 @@ export async function reverseInventoryTransaction(
       reversal_note: "Reversed by household member",
     });
     if (error) {
-      if (error.code === "23505") {
+      if (
+        error.code === "23505" ||
+        error.message === "Inventory transaction is already reversed"
+      ) {
         return { ok: false, error: "That transaction was already reversed." };
       }
       throw error;

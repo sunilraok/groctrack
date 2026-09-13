@@ -173,8 +173,8 @@ select throws_ok(
     'select public.reverse_inventory_transaction(%L, null)',
     adjustment_id
   ),
-  '23505',
-  null,
+  'P0001',
+  'Inventory transaction is already reversed',
   'a transaction cannot be reversed twice'
 )
 from inventory_test_ids;
