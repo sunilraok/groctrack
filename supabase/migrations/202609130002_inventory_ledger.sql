@@ -96,10 +96,12 @@ begin
   if client_operation_id is null then
     raise exception 'Operation ID is required';
   end if;
-  if entered_quantity is not null
-    and public.is_finite_numeric(entered_quantity)
-    and scale(entered_quantity) > 6
+  if entered_quantity is null
+    or not public.is_finite_numeric(entered_quantity)
   then
+    raise exception 'Quantity must be finite and greater than zero';
+  end if;
+  if scale(entered_quantity) > 6 then
     raise exception 'Quantity must have at most six fractional digits';
   end if;
 

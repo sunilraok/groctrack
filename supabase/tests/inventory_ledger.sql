@@ -1,6 +1,6 @@
 begin;
 
-select plan(45);
+select plan(50);
 
 insert into auth.users (
   instance_id,
@@ -299,6 +299,69 @@ select throws_ok(
   'P0001',
   'Quantity must be finite and greater than zero',
   'non-finite manual quantities are rejected'
+);
+
+select throws_ok(
+  $$select public.record_inventory_change(
+    '33333333-3333-4333-8333-333333333333',
+    'adjustment',
+    'Infinity'::numeric,
+    'g',
+    'aaaaaaaa-5555-4555-8555-aaaaaaaaaaaa',
+    null
+  )$$,
+  'P0001',
+  'Quantity must be finite and greater than zero',
+  'positive infinity is rejected before inventory locking'
+);
+
+select throws_ok(
+  $$select public.record_inventory_change(
+    '33333333-3333-4333-8333-333333333333',
+    'adjustment',
+    '-Infinity'::numeric,
+    'g',
+    'aaaaaaaa-6666-4666-8666-aaaaaaaaaaaa',
+    null
+  )$$,
+  'P0001',
+  'Quantity must be finite and greater than zero',
+  'negative infinity is rejected before inventory locking'
+);
+
+select throws_ok(
+  $$select public.record_inventory_change(
+    '33333333-3333-4333-8333-333333333333',
+    'adjustment',
+    null,
+    'g',
+    'aaaaaaaa-7777-4777-8777-aaaaaaaaaaaa',
+    null
+  )$$,
+  'P0001',
+  'Quantity must be finite and greater than zero',
+  'a null quantity is rejected before inventory locking'
+);
+
+select is(
+  (
+    select count(*)
+    from public.inventory_transactions
+    where operation_id in (
+      'aaaaaaaa-2222-4222-8222-aaaaaaaaaaaa',
+      'aaaaaaaa-5555-4555-8555-aaaaaaaaaaaa',
+      'aaaaaaaa-6666-4666-8666-aaaaaaaaaaaa',
+      'aaaaaaaa-7777-4777-8777-aaaaaaaaaaaa'
+    )
+  ),
+  0::bigint,
+  'invalid non-finite and null requests create no ledger entries'
+);
+
+select is(
+  (select quantity_base from public.inventory_balances where grocery_item_id = '33333333-3333-4333-8333-333333333333'),
+  1000::numeric,
+  'invalid non-finite and null requests do not mutate the balance'
 );
 
 select throws_ok(
