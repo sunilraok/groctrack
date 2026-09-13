@@ -4,6 +4,10 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getServerEnv } from "@/lib/env";
 import { safeNextPath } from "@/lib/navigation";
+import {
+  genericSignInError,
+  submitSignUpWithoutEnumeration,
+} from "@/lib/public-auth";
 import { createClient } from "@/lib/supabase/server";
 
 const credentialsSchema = z.object({
@@ -28,7 +32,7 @@ export async function signIn(
     email: parsed.data.email.toLowerCase(),
     password: parsed.data.password,
   });
-  if (error) return { error: error.message };
+  if (error) return { error: genericSignInError };
 
   redirect(safeNextPath(parsed.data.next ?? null));
 }
@@ -49,17 +53,16 @@ export async function signUp(
   const env = getServerEnv();
   const callbackUrl = new URL("/auth/callback", env.NEXT_PUBLIC_SITE_URL);
   callbackUrl.searchParams.set("next", next);
-  const { error } = await supabase.auth.signUp({
-    email: parsed.data.email.toLowerCase(),
-    password: parsed.data.password,
-    options: {
-      data: { display_name: parsed.data.displayName },
-      emailRedirectTo: callbackUrl.toString(),
-    },
-  });
-
-  if (error) return { error: error.message };
-  return { message: "Check your email to confirm your account." };
+  return submitSignUpWithoutEnumeration(() =>
+    supabase.auth.signUp({
+      email: parsed.data.email.toLowerCase(),
+      password: parsed.data.password,
+      options: {
+        data: { display_name: parsed.data.displayName },
+        emailRedirectTo: callbackUrl.toString(),
+      },
+    }),
+  );
 }
 
 export async function signOut() {
