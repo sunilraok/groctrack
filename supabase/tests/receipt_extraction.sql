@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(17);
+select plan(30);
 
 select has_column('public', 'receipts', 'upload_id');
 select has_column('public', 'receipts', 'content_sha256');
@@ -87,6 +87,50 @@ values (
   4,
   repeat('a', 64)
 );
+
+insert into public.receipts (
+  id,
+  household_id,
+  uploaded_by,
+  upload_id,
+  image_path,
+  original_filename,
+  content_type,
+  object_size,
+  content_sha256,
+  status,
+  posted_at,
+  posted_by
+)
+values
+  (
+    '73000000-0000-4000-8000-000000000002',
+    '72000000-0000-4000-8000-000000000001',
+    '71000000-0000-4000-8000-000000000001',
+    '74000000-0000-4000-8000-000000000002',
+    '72000000-0000-4000-8000-000000000001/71000000-0000-4000-8000-000000000001/74000000-0000-4000-8000-000000000002.jpg',
+    'failure.jpg',
+    'image/jpeg',
+    4,
+    repeat('b', 64),
+    'pending',
+    null,
+    null
+  ),
+  (
+    '73000000-0000-4000-8000-000000000003',
+    '72000000-0000-4000-8000-000000000001',
+    '71000000-0000-4000-8000-000000000001',
+    '74000000-0000-4000-8000-000000000003',
+    '72000000-0000-4000-8000-000000000001/71000000-0000-4000-8000-000000000001/74000000-0000-4000-8000-000000000003.jpg',
+    'posted.jpg',
+    'image/jpeg',
+    4,
+    repeat('c', 64),
+    'posted',
+    now(),
+    '71000000-0000-4000-8000-000000000001'
+  );
 
 set local role service_role;
 select set_config('request.jwt.claims', '{"role":"service_role"}', true);
@@ -200,6 +244,134 @@ select is(
   (select count(*) from public.inventory_transactions),
   0::bigint,
   'receipt extraction never mutates inventory'
+);
+
+select ok(
+  public.claim_receipt_extraction(
+    '73000000-0000-4000-8000-000000000002',
+    '75000000-0000-4000-8000-000000000003'
+  ),
+  'failure lifecycle starts from a guarded claim'
+);
+select ok(
+  not public.fail_receipt_extraction(
+    '73000000-0000-4000-8000-000000000002',
+    '75000000-0000-4000-8000-000000000099',
+    'transient',
+    'Temporary failure.',
+    true
+  ),
+  'a stale run token cannot record failure'
+);
+select ok(
+  public.fail_receipt_extraction(
+    '73000000-0000-4000-8000-000000000002',
+    '75000000-0000-4000-8000-000000000003',
+    'transient',
+    'Temporary failure.',
+    true
+  ),
+  'the current run token records retryable failure'
+);
+select is(
+  (
+    select status::text
+    from public.receipts
+    where id = '73000000-0000-4000-8000-000000000002'
+  ),
+  'failed',
+  'failure transition clears processing state'
+);
+select ok(
+  public.claim_receipt_extraction(
+    '73000000-0000-4000-8000-000000000002',
+    '75000000-0000-4000-8000-000000000004'
+  ),
+  'retryable failed work can be reclaimed'
+);
+select ok(
+  public.fail_receipt_extraction(
+    '73000000-0000-4000-8000-000000000002',
+    '75000000-0000-4000-8000-000000000004',
+    'permanent',
+    'Permanent failure.',
+    false
+  ),
+  'current work can record a non-retryable failure'
+);
+select ok(
+  not public.claim_receipt_extraction(
+    '73000000-0000-4000-8000-000000000002',
+    '75000000-0000-4000-8000-000000000005'
+  ),
+  'non-retryable failed work cannot be claimed'
+);
+
+reset role;
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"71000000-0000-4000-8000-000000000001","role":"authenticated"}',
+  true
+);
+
+select ok(
+  public.void_receipt('73000000-0000-4000-8000-000000000002'),
+  'a household member can void failed work'
+);
+select ok(
+  not public.void_receipt('73000000-0000-4000-8000-000000000002'),
+  'voiding is idempotent'
+);
+
+reset role;
+set local role service_role;
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+
+select ok(
+  not public.claim_receipt_extraction(
+    '73000000-0000-4000-8000-000000000002',
+    '75000000-0000-4000-8000-000000000006'
+  ),
+  'voided work cannot be claimed'
+);
+select ok(
+  not public.claim_receipt_extraction(
+    '73000000-0000-4000-8000-000000000003',
+    '75000000-0000-4000-8000-000000000007'
+  ),
+  'posted work cannot be claimed'
+);
+select throws_ok(
+  $$update public.receipts
+    set status = 'pending', posted_at = null, posted_by = null
+    where id = '73000000-0000-4000-8000-000000000003'$$,
+  'P0001',
+  'Invalid receipt status transition',
+  'invalid lifecycle transitions are rejected'
+);
+select throws_ok(
+  $$insert into public.receipts (
+      household_id,
+      uploaded_by,
+      upload_id,
+      image_path,
+      original_filename,
+      content_type,
+      status
+    )
+    values (
+      '72000000-0000-4000-8000-000000000001',
+      '71000000-0000-4000-8000-000000000001',
+      '74000000-0000-4000-8000-000000000099',
+      '72000000-0000-4000-8000-000000000001/71000000-0000-4000-8000-000000000001/74000000-0000-4000-8000-000000000099.jpg',
+      'invalid-processing.jpg',
+      'image/jpeg',
+      'processing'
+    )$$,
+  '23514',
+  null,
+  'processing rows require a run token and start time'
 );
 
 select * from finish();

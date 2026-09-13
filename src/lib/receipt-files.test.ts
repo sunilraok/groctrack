@@ -1,4 +1,4 @@
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFName, PDFString } from "pdf-lib";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import {
@@ -34,6 +34,19 @@ async function image(format: "jpeg" | "png" | "webp", width = 1, height = 1) {
 async function pdf(pageCount = 1) {
   const document = await PDFDocument.create();
   for (let index = 0; index < pageCount; index += 1) document.addPage([10, 10]);
+  return document.save({ useObjectStreams: false });
+}
+
+async function activePdf() {
+  const document = await PDFDocument.create();
+  document.addPage([10, 10]);
+  document.catalog.set(
+    PDFName.of("OpenAction"),
+    document.context.obj({
+      S: PDFName.of("JavaScript"),
+      JS: PDFString.of("app.alert(1)"),
+    }),
+  );
   return document.save({ useObjectStreams: false });
 }
 
@@ -109,6 +122,26 @@ describe("validateReceiptFile", () => {
         testFile("receipt.jpg", "image/jpeg", jpegPolyglot),
       ),
     ).rejects.toThrow("trailing");
+
+    const validWebp = await image("webp");
+    const webpPolyglot = new Uint8Array(validWebp.length + 8);
+    webpPolyglot.set(validWebp);
+    webpPolyglot.set(new TextEncoder().encode("trailing"), validWebp.length);
+    await expect(
+      validateReceiptFile(
+        testFile("receipt.webp", "image/webp", webpPolyglot),
+      ),
+    ).rejects.toThrow("trailing");
+
+    const validPdf = await pdf();
+    const pdfPolyglot = new Uint8Array(validPdf.length + 8);
+    pdfPolyglot.set(validPdf);
+    pdfPolyglot.set(new TextEncoder().encode("<script>"), validPdf.length);
+    await expect(
+      validateReceiptFile(
+        testFile("receipt.pdf", "application/pdf", pdfPolyglot),
+      ),
+    ).rejects.toThrow("trailing");
   });
 
   it("guards image dimensions and PDF page counts", async () => {
@@ -119,9 +152,102 @@ describe("validateReceiptFile", () => {
     ).rejects.toThrow("dimensions");
     await expect(
       validateReceiptFile(
+        testFile(
+          "too-many-pixels.png",
+          "image/png",
+          await image("png", 5_001, 5_000),
+        ),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      validateReceiptFile(
         testFile("long.pdf", "application/pdf", await pdf(51)),
       ),
     ).rejects.toThrow("1-50 pages");
+  });
+
+  it("rejects animated WebP receipts", async () => {
+    const rawFrames = Buffer.from([
+      255, 0, 0, 255,
+      0, 0, 255, 255,
+    ]);
+    const gif = await sharp(rawFrames, {
+      raw: { width: 1, height: 2, pageHeight: 1, channels: 4 },
+    })
+      .gif({ delay: [100, 100], loop: 0 })
+      .toBuffer();
+    const animated = new Uint8Array(
+      await sharp(gif, { pages: -1 })
+        .webp({ delay: [100, 100], loop: 0 })
+        .toBuffer(),
+    );
+    await expect(
+      validateReceiptFile(
+        testFile("animated.webp", "image/webp", animated),
+      ),
+    ).rejects.toThrow("dimensions");
+  });
+
+  it.each([
+    "../receipt.png",
+    "folder/receipt.png",
+    "folder\\receipt.png",
+    "\u0000receipt.png",
+    "",
+    `${"é".repeat(128)}.png`,
+  ])("rejects unsafe filename %j", async (name) => {
+    await expect(
+      validateReceiptFile(testFile(name, "image/png", await image("png"))),
+    ).rejects.toBeInstanceOf(ReceiptFileError);
+  });
+
+  it("normalizes Unicode filenames before persistence", async () => {
+    const result = await validateReceiptFile(
+      testFile("re\u0301ceipt.png", "image/png", await image("png")),
+    );
+    expect(result.originalFilename).toBe("réceipt.png");
+  });
+
+  it("rejects zero bytes and declared-size mismatches", async () => {
+    await expect(
+      validateReceiptFile(testFile("empty.png", "image/png", new Uint8Array())),
+    ).rejects.toThrow("between 1 byte and 10 MiB");
+
+    const png = await image("png");
+    await expect(
+      validateReceiptFile({
+        ...testFile("receipt.png", "image/png", png),
+        size: png.length + 1,
+      }),
+    ).rejects.toThrow("do not match");
+  });
+
+  it("accepts a structurally valid PDF at exactly 10 MiB", async () => {
+    const validPdf = await pdf();
+    const exact = new Uint8Array(MAX_RECEIPT_BYTES);
+    exact.fill(0x20);
+    exact.set(validPdf);
+    const eof = new TextEncoder().encode("%%EOF\n");
+    exact.set(eof, exact.length - eof.length);
+    await expect(
+      validateReceiptFile(testFile("receipt.pdf", "application/pdf", exact)),
+    ).resolves.toMatchObject({ contentType: "application/pdf" });
+  });
+
+  it("rejects encrypted or active-content PDFs by policy", async () => {
+    await expect(
+      validateReceiptFile(
+        testFile("active.pdf", "application/pdf", await activePdf()),
+      ),
+    ).rejects.toThrow("active content");
+    const encryptedMarker = new TextEncoder().encode(
+      "%PDF-1.7\n/Encrypt true\n%%EOF\n",
+    );
+    await expect(
+      validateReceiptFile(
+        testFile("encrypted.pdf", "application/pdf", encryptedMarker),
+      ),
+    ).rejects.toThrow("Encrypted PDFs");
   });
 
   it("rejects payloads above 10 MiB before reading bytes", async () => {

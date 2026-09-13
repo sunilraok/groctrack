@@ -182,6 +182,110 @@ describe("GeminiReceiptExtractor", () => {
     ).rejects.toMatchObject({ kind: "transient" });
   });
 
+  it("rejects invalid JSON and schema-invalid structured results", async () => {
+    const envelope = (text: string) =>
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text }] } }],
+      });
+    const invalidJson = new GeminiReceiptExtractor({
+      apiKey: "secret",
+      model: "gemini-test",
+      fetch: async () => new Response(envelope("{not-json")),
+    });
+    await expect(
+      invalidJson.extract({
+        bytes: new Uint8Array([1]),
+        contentType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({ kind: "permanent", retryable: false });
+
+    const invalidSchema = new GeminiReceiptExtractor({
+      apiKey: "secret",
+      model: "gemini-test",
+      fetch: async () =>
+        new Response(envelope(JSON.stringify({ ...validReceipt, total: 12.34 }))),
+    });
+    await expect(
+      invalidSchema.extract({
+        bytes: new Uint8Array([1]),
+        contentType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({ kind: "permanent", retryable: false });
+  });
+
+  it.each([408, 500, 503])(
+    "classifies HTTP %s as retryable transient failure",
+    async (status) => {
+      const extractor = new GeminiReceiptExtractor({
+        apiKey: "secret",
+        model: "gemini-test",
+        fetch: async () => new Response("discarded", { status }),
+      });
+      await expect(
+        extractor.extract({
+          bytes: new Uint8Array([1]),
+          contentType: "image/jpeg",
+        }),
+      ).rejects.toMatchObject({ kind: "transient", retryable: true });
+    },
+  );
+
+  it.each([400, 401, 403, 422])(
+    "classifies ordinary HTTP %s as permanent failure",
+    async (status) => {
+      const extractor = new GeminiReceiptExtractor({
+        apiKey: "secret",
+        model: "gemini-test",
+        fetch: async () => new Response("discarded", { status }),
+      });
+      await expect(
+        extractor.extract({
+          bytes: new Uint8Array([1]),
+          contentType: "image/jpeg",
+        }),
+      ).rejects.toMatchObject({ kind: "permanent", retryable: false });
+    },
+  );
+
+  it("classifies aborts and network errors as retryable without logging inputs", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const timeout = new GeminiReceiptExtractor({
+      apiKey: "super-secret-api-key",
+      model: "gemini-test",
+      timeoutMs: 1,
+      fetch: ((_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        })) as typeof fetch,
+    });
+    await expect(
+      timeout.extract({
+        bytes: new TextEncoder().encode("private-source-bytes"),
+        contentType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({ kind: "transient", retryable: true });
+
+    const network = new GeminiReceiptExtractor({
+      apiKey: "super-secret-api-key",
+      model: "gemini-test",
+      fetch: async () => {
+        throw new Error("network response with sensitive body");
+      },
+    });
+    await expect(
+      network.extract({
+        bytes: new TextEncoder().encode("private-source-bytes"),
+        contentType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({ kind: "transient", retryable: true });
+    expect([...info.mock.calls, ...warn.mock.calls].flat().join(" ")).not.toMatch(
+      /super-secret|private-source|sensitive body/,
+    );
+  });
+
   it("rejects model strings that could control the provider URL", () => {
     expect(
       () =>

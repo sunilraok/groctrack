@@ -89,11 +89,23 @@ export async function processReceipt({
       },
     );
     if (completionError) throw new Error("Unable to persist receipt extraction.");
-    logReceiptEvent(completed ? "extraction_completed" : "completion_superseded", {
+    if (!completed) {
+      const { data: current, error: currentError } = await authorizedClient
+        .from("receipts")
+        .select("status")
+        .eq("id", receipt.id)
+        .single();
+      if (currentError || !current) {
+        throw new Error("Unable to resolve superseded receipt extraction.");
+      }
+      logReceiptEvent("completion_superseded", { receiptId: receipt.id });
+      return { status: current.status as ProcessReceiptResult["status"] };
+    }
+    logReceiptEvent("extraction_completed", {
       receiptId: receipt.id,
       provider: result.provider,
     });
-    return { status: completed ? "review_ready" : "processing" };
+    return { status: "review_ready" };
   } catch (error) {
     const failure = safeFailure(error);
     const { data: failed, error: failureError } = await admin.rpc("fail_receipt_extraction", {

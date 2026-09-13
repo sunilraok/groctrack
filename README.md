@@ -66,6 +66,8 @@ npx supabase db lint
 npx supabase test db
 npx --package supabase@2.117.0 -c 'bash supabase/tests/integration.sh'
 ./scripts/test-inventory-concurrency.sh
+npm run test:receipt-upgrade
+npm run test:receipt-integration
 npx supabase stop --no-backup
 ```
 
@@ -78,7 +80,6 @@ two database sessions to prove operation UUID replay applies one ledger row and
 one balance change, then holds the item advisory lock while invalid quantities
 are rejected before waiting.
 The same checks run in GitHub Actions for pull requests and pushes to `main`.
-The same checks run in GitHub Actions for pull requests and pushes to `main`.
 
 The database tests exercise cross-household RLS, owner-only invitations,
 email-bound invitation acceptance, profile visibility between members, exact
@@ -86,7 +87,9 @@ unit conversion, append-only inventory transactions, transactional balance
 projection, idempotent manual changes, and duplicate purchase/reversal
 protection. Receipt tests cover media validation, structured extraction,
 reconciliation warnings, duplicate-work claims, and service-role-only
-persistence.
+persistence. Database CI also exercises a populated `002` to `003` migration
+upgrade and live Storage/RLS concurrency, signed-URL, and membership-revocation
+boundaries.
 
 The `receipts` storage bucket is private. Object names must begin with the
 household and uploader UUIDs, for example

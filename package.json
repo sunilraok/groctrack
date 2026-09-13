@@ -11,6 +11,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "test:receipt-integration": "node scripts/receipt-supabase-integration.mjs",
+    "test:receipt-upgrade": "bash scripts/test-receipt-migration-upgrade.sh",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"

@@ -26,6 +26,8 @@ export class ReceiptFileError extends Error {}
 const MAX_IMAGE_PIXELS = 25_000_000;
 const MAX_IMAGE_EDGE = 12_000;
 const MAX_PDF_PAGES = 50;
+const unsafePdfFeature =
+  /\/(?:Encrypt|JavaScript|JS|Launch|EmbeddedFile|OpenAction|AA|RichMedia)\b/;
 
 function isPngStructurallyBounded(bytes: Uint8Array) {
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -136,6 +138,11 @@ async function validatePdfStructure(bytes: Uint8Array) {
   if (!source.startsWith("%PDF-") || !/%%EOF[ \t\r\n]*$/.test(source)) {
     throw new ReceiptFileError("The PDF contains malformed or trailing data.");
   }
+  if (unsafePdfFeature.test(source)) {
+    throw new ReceiptFileError(
+      "Encrypted PDFs and PDFs with active content are not supported.",
+    );
+  }
   const document = await PDFDocument.load(bytes, {
     capNumbers: true,
     ignoreEncryption: false,
@@ -147,13 +154,25 @@ async function validatePdfStructure(bytes: Uint8Array) {
   if (pages < 1 || pages > MAX_PDF_PAGES) {
     throw new ReceiptFileError(`PDF receipts must contain 1-${MAX_PDF_PAGES} pages.`);
   }
+  if (
+    document.context
+      .enumerateIndirectObjects()
+      .some(([, object]) => unsafePdfFeature.test(object.toString()))
+  ) {
+    throw new ReceiptFileError(
+      "Encrypted PDFs and PDFs with active content are not supported.",
+    );
+  }
 }
 
 function safeFilename(name: string) {
-  const filename = name.split(/[\\/]/).at(-1)?.normalize("NFKC") ?? "";
+  if (/[\\/]/.test(name)) {
+    throw new ReceiptFileError("Receipt filenames cannot contain path separators.");
+  }
+  const filename = name.normalize("NFKC");
   if (
     filename.length < 1 ||
-    filename.length > 255 ||
+    new TextEncoder().encode(filename).byteLength > 255 ||
     /[\u0000-\u001f\u007f]/.test(filename)
   ) {
     throw new ReceiptFileError("Use a filename between 1 and 255 characters.");
