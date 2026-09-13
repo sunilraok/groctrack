@@ -307,6 +307,47 @@ create table public.inventory_balances (
     references public.grocery_items(household_id, id) on delete cascade
 );
 
+create view public.inventory_stock
+with (security_invoker = true)
+as
+select
+  grocery_items.id,
+  grocery_items.household_id,
+  grocery_items.name,
+  grocery_items.normalized_name,
+  grocery_items.category,
+  grocery_items.unit_dimension,
+  grocery_items.base_unit,
+  grocery_items.low_stock_threshold::text as low_stock_threshold,
+  grocery_items.is_active,
+  grocery_items.created_by,
+  grocery_items.created_at,
+  grocery_items.updated_at,
+  coalesce(inventory_balances.quantity_base, 0)::text as quantity_base,
+  inventory_balances.updated_at as balance_updated_at
+from public.grocery_items
+left join public.inventory_balances
+  on inventory_balances.household_id = grocery_items.household_id
+  and inventory_balances.grocery_item_id = grocery_items.id;
+
+create view public.inventory_transaction_history
+with (security_invoker = true)
+as
+select
+  id,
+  household_id,
+  grocery_item_id,
+  transaction_type,
+  quantity_base::text as quantity_base,
+  original_quantity::text as original_quantity,
+  original_unit,
+  source_receipt_line_id,
+  reverses_transaction_id,
+  note,
+  created_by,
+  created_at
+from public.inventory_transactions;
+
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -1228,6 +1269,8 @@ grant select, insert, update on public.receipts to authenticated;
 grant select, insert, update, delete on public.receipt_lines to authenticated;
 grant select on public.inventory_transactions to authenticated;
 grant select on public.inventory_balances to authenticated;
+grant select on public.inventory_stock to authenticated;
+grant select on public.inventory_transaction_history to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.households enable row level security;

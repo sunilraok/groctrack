@@ -2,7 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireHousehold } from "@/lib/households";
 import { formatQuantity, isLowStock } from "@/lib/units";
-import type { GroceryItem, InventoryTransaction } from "@/types/database";
+import type {
+  InventoryStockItem,
+  InventoryTransaction,
+} from "@/types/database";
 import {
   InventoryChangeForm,
   ReverseTransactionForm,
@@ -24,23 +27,16 @@ export default async function InventoryItemPage({
   const { supabase, current } = await requireHousehold();
   const [
     { data: itemData, error: itemError },
-    { data: balanceData, error: balanceError },
     { data: transactionData, error: transactionError },
   ] = await Promise.all([
     supabase
-      .from("grocery_items")
+      .from("inventory_stock")
       .select("*")
       .eq("id", id)
       .eq("household_id", current.household_id)
       .maybeSingle(),
     supabase
-      .from("inventory_balances")
-      .select("quantity_base")
-      .eq("grocery_item_id", id)
-      .eq("household_id", current.household_id)
-      .maybeSingle(),
-    supabase
-      .from("inventory_transactions")
+      .from("inventory_transaction_history")
       .select("*")
       .eq("grocery_item_id", id)
       .eq("household_id", current.household_id)
@@ -50,18 +46,16 @@ export default async function InventoryItemPage({
 
   if (itemError) throw new Error(itemError.message);
   if (!itemData) notFound();
-  if (balanceError) throw new Error(balanceError.message);
   if (transactionError) throw new Error(transactionError.message);
 
-  const item = itemData as GroceryItem;
+  const item = itemData as InventoryStockItem;
   const transactions = (transactionData ?? []) as InventoryTransaction[];
-  const balance = balanceData?.quantity_base ?? "0";
   const reversedIds = new Set(
     transactions
       .map((transaction) => transaction.reverses_transaction_id)
       .filter((transactionId): transactionId is string => transactionId !== null),
   );
-  const low = isLowStock(balance, item.low_stock_threshold);
+  const low = isLowStock(item.quantity_base, item.low_stock_threshold);
 
   return (
     <main className="page">
@@ -72,7 +66,9 @@ export default async function InventoryItemPage({
           <h1>{item.name}</h1>
           <p>
             Current stock:{" "}
-            <strong>{formatQuantity(balance, item.unit_dimension)}</strong>
+            <strong>
+              {formatQuantity(item.quantity_base, item.unit_dimension)}
+            </strong>
           </p>
         </div>
         <span className={`badge ${low ? "low" : "good"}`}>

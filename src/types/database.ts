@@ -52,6 +52,11 @@ export interface InventoryBalance {
   grocery_items: GroceryItem;
 }
 
+export interface InventoryStockItem extends GroceryItem {
+  quantity_base: string;
+  balance_updated_at: string | null;
+}
+
 export interface InventoryTransaction {
   id: string;
   household_id: string;
