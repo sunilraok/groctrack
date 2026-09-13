@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(37);
+select plan(45);
 
 select ok(
   not has_function_privilege('anon', 'public.create_household(text)', 'execute'),
@@ -130,6 +130,27 @@ values (
   'review_ready'
 );
 
+insert into public.receipts (
+  id,
+  household_id,
+  uploaded_by,
+  merchant_id,
+  image_path,
+  original_filename,
+  content_type,
+  status
+)
+values (
+  '50000000-0000-0000-0000-000000000002',
+  '20000000-0000-0000-0000-000000000001',
+  '10000000-0000-0000-0000-000000000002',
+  '30000000-0000-0000-0000-000000000001',
+  '20000000-0000-0000-0000-000000000001/nan-receipt.jpg',
+  'nan-receipt.jpg',
+  'image/jpeg',
+  'review_ready'
+);
+
 insert into public.receipt_lines (
   id,
   household_id,
@@ -214,6 +235,105 @@ select set_config(
   'request.jwt.claims',
   '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}',
   true
+);
+
+select lives_ok(
+  $$insert into public.receipts (
+      household_id,
+      uploaded_by,
+      image_path,
+      original_filename,
+      content_type
+    )
+    values (
+      '20000000-0000-0000-0000-000000000001',
+      '10000000-0000-0000-0000-000000000001',
+      '20000000-0000-0000-0000-000000000001/pending.jpg',
+      'pending.jpg',
+      'image/jpeg'
+    )$$,
+  'an active member can create a receipt in the exact initial state'
+);
+select throws_ok(
+  $$insert into public.receipts (
+      household_id,
+      uploaded_by,
+      image_path,
+      original_filename,
+      content_type,
+      status,
+      posted_at,
+      posted_by
+    )
+    values (
+      '20000000-0000-0000-0000-000000000001',
+      '10000000-0000-0000-0000-000000000001',
+      '20000000-0000-0000-0000-000000000001/forged-posted.jpg',
+      'forged-posted.jpg',
+      'image/jpeg',
+      'posted',
+      now(),
+      '10000000-0000-0000-0000-000000000001'
+    )$$,
+  '42501',
+  null,
+  'authenticated users cannot insert an already-posted receipt'
+);
+select throws_ok(
+  $$insert into public.receipts (
+      household_id,
+      uploaded_by,
+      image_path,
+      original_filename,
+      content_type,
+      posted_by
+    )
+    values (
+      '20000000-0000-0000-0000-000000000001',
+      '10000000-0000-0000-0000-000000000001',
+      '20000000-0000-0000-0000-000000000001/false-attribution.jpg',
+      'false-attribution.jpg',
+      'image/jpeg',
+      '10000000-0000-0000-0000-000000000002'
+    )$$,
+  '42501',
+  null,
+  'authenticated users cannot forge receipt posting attribution'
+);
+select throws_ok(
+  $$select public.record_inventory_change(
+    '40000000-0000-0000-0000-000000000001',
+    'adjustment',
+    'NaN'::numeric,
+    'g',
+    null
+  )$$,
+  'P0001',
+  'Quantity must be finite and greater than zero',
+  'manual inventory changes reject NaN'
+);
+select throws_ok(
+  $$insert into public.receipt_lines (
+      household_id,
+      receipt_id,
+      line_number,
+      raw_description,
+      quantity,
+      unit,
+      grocery_item_id
+    )
+    values (
+      '20000000-0000-0000-0000-000000000001',
+      '50000000-0000-0000-0000-000000000001',
+      2,
+      'INVALID NAN',
+      'NaN'::numeric,
+      'g',
+      '40000000-0000-0000-0000-000000000001'
+    )$$,
+  '23514',
+  null,
+  'receipt line constraints reject NaN'
 );
 
 select lives_ok(
@@ -584,6 +704,48 @@ select ok(
       and prosecdef
   ),
   'owner role changes use a transactional security-definer RPC'
+);
+select ok(
+  not public.is_finite_numeric('Infinity'::numeric),
+  'positive numeric infinity is rejected'
+);
+select ok(
+  not public.is_finite_numeric('-Infinity'::numeric),
+  'negative numeric infinity is rejected'
+);
+
+alter table public.receipt_lines
+  drop constraint receipt_lines_quantity_valid;
+insert into public.receipt_lines (
+  household_id,
+  receipt_id,
+  line_number,
+  raw_description,
+  quantity,
+  unit,
+  grocery_item_id
+)
+values (
+  '20000000-0000-0000-0000-000000000001',
+  '50000000-0000-0000-0000-000000000002',
+  1,
+  'CORRUPT NAN',
+  'NaN'::numeric,
+  'g',
+  '40000000-0000-0000-0000-000000000001'
+);
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
+select throws_ok(
+  $$select public.post_receipt('50000000-0000-0000-0000-000000000002')$$,
+  'P0001',
+  'Receipt line quantities must be finite',
+  'receipt posting rejects non-finite persisted quantities defensively'
 );
 
 select * from finish();

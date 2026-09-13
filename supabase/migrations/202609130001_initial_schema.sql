@@ -1,6 +1,17 @@
 create extension if not exists pgcrypto;
 create extension if not exists pg_trgm;
 
+create or replace function public.is_finite_numeric(value numeric)
+returns boolean
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select value is null
+    or value::text not in ('NaN', 'Infinity', '-Infinity');
+$$;
+
 create type public.household_role as enum ('owner', 'member');
 create type public.unit_dimension as enum ('mass', 'volume', 'count');
 create type public.receipt_status as enum (
@@ -86,7 +97,12 @@ create table public.grocery_items (
   category text,
   unit_dimension public.unit_dimension not null,
   base_unit text not null,
-  low_stock_threshold numeric(18, 6) check (low_stock_threshold is null or low_stock_threshold >= 0),
+  low_stock_threshold numeric(18, 6)
+    constraint grocery_items_low_stock_threshold_valid
+    check (
+      public.is_finite_numeric(low_stock_threshold)
+      and (low_stock_threshold is null or low_stock_threshold >= 0)
+    ),
   is_active boolean not null default true,
   created_by uuid not null references public.profiles(id),
   created_at timestamptz not null default now(),
@@ -152,10 +168,22 @@ create table public.receipts (
   updated_at timestamptz not null default now(),
   check ((status = 'posted') = (posted_at is not null)),
   check (image_path like household_id::text || '/%'),
-  check (subtotal is null or subtotal >= 0),
-  check (discount is null or discount >= 0),
-  check (tax is null or tax >= 0),
-  check (total is null or total >= 0),
+  constraint receipts_subtotal_valid check (
+    public.is_finite_numeric(subtotal)
+    and (subtotal is null or subtotal >= 0)
+  ),
+  constraint receipts_discount_valid check (
+    public.is_finite_numeric(discount)
+    and (discount is null or discount >= 0)
+  ),
+  constraint receipts_tax_valid check (
+    public.is_finite_numeric(tax)
+    and (tax is null or tax >= 0)
+  ),
+  constraint receipts_total_valid check (
+    public.is_finite_numeric(total)
+    and (total is null or total >= 0)
+  ),
   unique (household_id, id),
   foreign key (household_id, uploaded_by)
     references public.household_members(household_id, user_id),
@@ -176,13 +204,29 @@ create table public.receipt_lines (
   raw_description text not null,
   interpreted_description text,
   product_code text,
-  quantity numeric(18, 6) check (quantity is null or quantity > 0),
+  quantity numeric(18, 6)
+    constraint receipt_lines_quantity_valid
+    check (
+      public.is_finite_numeric(quantity)
+      and (quantity is null or quantity > 0)
+    ),
   unit text,
-  weight numeric(18, 6) check (weight is null or weight > 0),
+  weight numeric(18, 6)
+    constraint receipt_lines_weight_valid
+    check (
+      public.is_finite_numeric(weight)
+      and (weight is null or weight > 0)
+    ),
   weight_unit text,
-  unit_price numeric(12, 2),
-  line_total numeric(12, 2),
-  discount numeric(12, 2),
+  unit_price numeric(12, 2)
+    constraint receipt_lines_unit_price_finite
+    check (public.is_finite_numeric(unit_price)),
+  line_total numeric(12, 2)
+    constraint receipt_lines_total_finite
+    check (public.is_finite_numeric(line_total)),
+  discount numeric(12, 2)
+    constraint receipt_lines_discount_finite
+    check (public.is_finite_numeric(discount)),
   grocery_item_id uuid,
   save_alias boolean not null default false,
   is_ambiguous boolean not null default false,
@@ -202,8 +246,15 @@ create table public.inventory_transactions (
   household_id uuid not null references public.households(id) on delete cascade,
   grocery_item_id uuid not null,
   transaction_type public.inventory_transaction_type not null,
-  quantity_base numeric(18, 6) not null check (quantity_base <> 0),
-  original_quantity numeric(18, 6),
+  quantity_base numeric(18, 6) not null
+    constraint inventory_transactions_quantity_base_valid
+    check (
+      public.is_finite_numeric(quantity_base)
+      and quantity_base <> 0
+    ),
+  original_quantity numeric(18, 6)
+    constraint inventory_transactions_original_quantity_finite
+    check (public.is_finite_numeric(original_quantity)),
   original_unit text,
   source_receipt_line_id uuid,
   reverses_transaction_id uuid,
@@ -243,7 +294,9 @@ create index inventory_transactions_item_created_idx
 create table public.inventory_balances (
   household_id uuid not null references public.households(id) on delete cascade,
   grocery_item_id uuid not null,
-  quantity_base numeric(18, 6) not null default 0,
+  quantity_base numeric(18, 6) not null default 0
+    constraint inventory_balances_quantity_base_finite
+    check (public.is_finite_numeric(quantity_base)),
   updated_at timestamptz not null default now(),
   primary key (household_id, grocery_item_id),
   foreign key (household_id, grocery_item_id)
@@ -677,8 +730,11 @@ immutable
 set search_path = ''
 as $$
 begin
-  if quantity <= 0 then
-    raise exception 'Quantity must be greater than zero';
+  if quantity is null
+    or not public.is_finite_numeric(quantity)
+    or quantity <= 0
+  then
+    raise exception 'Quantity must be finite and greater than zero';
   end if;
 
   return case
@@ -730,6 +786,13 @@ begin
       and (grocery_item_id is null or quantity is null or unit is null)
   ) then
     raise exception 'All receipt lines must have an item, quantity, and unit';
+  end if;
+  if exists (
+    select 1 from public.receipt_lines
+    where receipt_id = target_receipt_id
+      and not public.is_finite_numeric(quantity)
+  ) then
+    raise exception 'Receipt line quantities must be finite';
   end if;
   if not exists (
     select 1 from public.receipt_lines
@@ -1075,6 +1138,21 @@ on public.receipts for insert to authenticated
 with check (
   public.is_household_member(household_id)
   and uploaded_by = (select auth.uid())
+  and status = 'pending'
+  and merchant_id is null
+  and purchased_at is null
+  and currency is null
+  and subtotal is null
+  and discount is null
+  and tax is null
+  and total is null
+  and provider is null
+  and provider_model is null
+  and extraction_schema_version is null
+  and extraction_warnings = '[]'::jsonb
+  and extraction_error is null
+  and posted_at is null
+  and posted_by is null
 );
 create policy "Members can update unposted receipts"
 on public.receipts for update to authenticated
@@ -1085,6 +1163,8 @@ using (
 with check (
   public.is_household_member(household_id)
   and status <> 'posted'
+  and posted_at is null
+  and posted_by is null
 );
 
 create policy "Members can read receipt lines"
