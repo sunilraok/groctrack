@@ -319,20 +319,26 @@ insert into public.receipts (
   id,
   household_id,
   uploaded_by,
+  upload_id,
   merchant_id,
   image_path,
   original_filename,
   content_type,
+  object_size,
+  content_sha256,
   status
 )
 values (
   '94000000-0000-0000-0000-000000000001',
   '91000000-0000-0000-0000-000000000001',
   '90000000-0000-0000-0000-000000000001',
+  '96000000-0000-4000-8000-000000000001',
   '92000000-0000-0000-0000-000000000001',
-  '91000000-0000-0000-0000-000000000001/race.jpg',
+  '91000000-0000-0000-0000-000000000001/90000000-0000-0000-0000-000000000001/96000000-0000-4000-8000-000000000001.jpg',
   'race.jpg',
   'image/jpeg',
+  12,
+  'bbd39a74d00734b0d47c453f1c6ea055ea251bb73fc4b3cba928b56b39d0353d',
   'review_ready'
 );
 
@@ -432,12 +438,6 @@ SQL
 
 cat >"$tmpdir/edit.sql" <<'SQL'
 begin;
-set local role authenticated;
-select set_config(
-  'request.jwt.claims',
-  '{"sub":"90000000-0000-0000-0000-000000000001","role":"authenticated"}',
-  true
-);
 set local statement_timeout = '15s';
 select 1
 from public.receipts
