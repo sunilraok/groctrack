@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/storybook-static/
+/playwright-report/
+/test-results/
 /supabase/.temp/
 
 # next.js

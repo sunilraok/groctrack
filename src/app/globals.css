@@ -34,6 +34,10 @@ a {
   text-decoration: none;
 }
 
+.hero-link {
+  color: white;
+}
+
 button,
 input,
 select {
@@ -166,7 +170,7 @@ p {
   padding: 9px;
   border: 0;
   border-radius: 9px;
-  color: var(--muted);
+  color: #475569;
   background: transparent;
 }
 
@@ -435,7 +439,12 @@ a.inventory-row:hover .item-name {
 .notice {
   padding: 12px;
   border-radius: 10px;
+  color: #475569;
   background: #f1f5f9;
+}
+
+.panel .notice {
+  color: #475569;
 }
 
 .receipt-grid,
