@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { signOut } from "@/app/auth/actions";
 import { getHouseholdContext } from "@/lib/households";
+import { DashboardShell } from "@/components/screens";
 import { HouseholdSwitcher } from "./forms";
 
 export default async function DashboardLayout({
@@ -10,25 +10,19 @@ export default async function DashboardLayout({
 }) {
   const { memberships, current } = await getHouseholdContext();
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <Link className="brand" href="/">GrocTrack</Link>
-        {current && (
-          <HouseholdSwitcher
-            memberships={memberships}
-            currentId={current.household_id}
-          />
-        )}
-        <nav className="side-nav" aria-label="Primary navigation">
-          <Link href="/dashboard">Inventory</Link>
-          {current && <Link href="/dashboard/receipts">Receipts</Link>}
-          {current && <Link href="/dashboard/settings">Household</Link>}
-        </nav>
-        <form action={signOut} className="sidebar-footer">
+    <DashboardShell
+      currentId={current?.household_id}
+      memberships={memberships}
+      signOut={
+        <form action={signOut}>
           <button className="button ghost small">Sign out</button>
         </form>
-      </aside>
-      <div className="app-main">{children}</div>
-    </div>
+      }
+      switcher={current ? (
+        <HouseholdSwitcher memberships={memberships} currentId={current.household_id} />
+      ) : undefined}
+    >
+      {children}
+    </DashboardShell>
   );
 }

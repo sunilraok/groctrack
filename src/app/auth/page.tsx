@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { safeNextPath } from "@/lib/navigation";
+import { AuthScreen } from "@/components/screens";
 import { AuthForm } from "./auth-form";
 
 export default async function AuthPage({
@@ -11,19 +11,9 @@ export default async function AuthPage({
   const next = safeNextPath(params.next ?? null);
 
   return (
-    <main className="auth-page">
-      <Link className="brand" href="/">GrocTrack</Link>
-      <section className="auth-copy">
-        <p className="eyebrow">Your household, together</p>
-        <h1>Share one private grocery workspace.</h1>
-        <p>Create a household or join one through an invitation sent to your email.</p>
-        {params.error === "confirmation" && (
-          <p className="form-error" role="alert">
-            The confirmation link is invalid or expired. Request a new sign-up link.
-          </p>
-        )}
-      </section>
-      <AuthForm next={next} />
-    </main>
+    <AuthScreen
+      confirmationError={params.error === "confirmation"}
+      form={<AuthForm next={next} />}
+    />
   );
 }
