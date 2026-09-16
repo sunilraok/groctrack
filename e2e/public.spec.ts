@@ -11,7 +11,7 @@ test("landing, authentication, callback safety, and route guards", async ({ page
   await page.getByLabel("Email").fill("nobody@example.test");
   await page.getByLabel("Password").fill("incorrect-password");
   await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByRole("alert")).toHaveText(/Unable to sign in/);
+  await expect(page.locator("main").getByRole("alert")).toHaveText(/Unable to sign in/);
 
   await page.goto("/auth/callback?code=invalid&next=https://evil.example");
   await expect(page).toHaveURL(/\/auth\?error=confirmation/);
@@ -49,11 +49,19 @@ test("sign-up and local email confirmation complete without account enumeration"
   expect(listError).toBeNull();
   const created = listed.users.find((user) => user.email === email);
   expect(created).toBeTruthy();
-  const { error: confirmationError } = await users.admin.auth.admin.updateUserById(created!.id, {
-    email_confirm: true,
-  });
+  const { data: confirmation, error: confirmationError } =
+    await users.admin.auth.admin.generateLink({
+      type: "signup",
+      email,
+      password,
+      options: { redirectTo: "http://localhost:3000/auth" },
+    });
   expect(confirmationError).toBeNull();
-  await page.getByLabel("Authentication mode").getByRole("button", { name: "Sign in" }).click();
+    const actionLink = confirmation.properties?.action_link;
+    expect(actionLink).toBeTruthy();
+    await page.goto(actionLink!);
+  await page.waitForURL((url) => url.origin === "http://localhost:3000");
+  await page.goto("/auth");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();

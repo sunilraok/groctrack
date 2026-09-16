@@ -85,8 +85,10 @@ npm run test:e2e
 `test:e2e` starts Supabase when necessary, resets it from migrations, exports
 the local API/anon/service-role values for the test process, forces
 `RECEIPT_EXTRACTOR=fake`, starts Next.js at `http://localhost:3000`, and stops Supabase only when the script
-started it. Set `E2E_SKIP_DB_RESET=1` to preserve an already prepared local
-database, or `PLAYWRIGHT_BASE_URL` to use a different local app URL. Never point
+started it. When reusing a running stack, it resets the database again after the
+suite so test users, households, inventory, and receipt objects cannot leak.
+Set `E2E_SKIP_DB_RESET=1` only to skip the initial reset while debugging; final
+cleanup still runs. Set `PLAYWRIGHT_BASE_URL` to use a different local app URL. Never point
 these tests at a hosted Supabase project.
 
 Each test creates confirmed local users with unique emails and removes them

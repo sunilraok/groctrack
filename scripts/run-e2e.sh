@@ -10,13 +10,6 @@ else
   supabase_cmd=(npx --yes supabase@2.117.0)
 fi
 
-cleanup() {
-  if [[ "$started_supabase" == "1" ]]; then
-    "${supabase_cmd[@]}" stop --no-backup
-  fi
-}
-trap cleanup EXIT
-
 if ! "${supabase_cmd[@]}" status --output json >/dev/null 2>&1; then
   "${supabase_cmd[@]}" start
   started_supabase=1
@@ -44,4 +37,19 @@ export SUPABASE_SERVICE_ROLE_KEY="$(jq -r '.SERVICE_ROLE_KEY' <<<"$status")"
 export NEXT_PUBLIC_SITE_URL="${PLAYWRIGHT_BASE_URL:-http://localhost:3000}"
 export RECEIPT_EXTRACTOR=fake
 
+set +e
 ./node_modules/.bin/playwright test "$@"
+test_status=$?
+set -e
+
+cleanup_status=0
+if [[ "$started_supabase" == "1" ]]; then
+  "${supabase_cmd[@]}" stop --no-backup || cleanup_status=$?
+else
+  "${supabase_cmd[@]}" db reset || cleanup_status=$?
+fi
+
+if [[ "$test_status" != "0" ]]; then
+  exit "$test_status"
+fi
+exit "$cleanup_status"

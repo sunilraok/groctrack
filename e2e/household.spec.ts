@@ -18,8 +18,8 @@ test("invitation acceptance, owner/member views, removal, and revoked denial", a
   await expect(invitedPage).toHaveURL(/\/dashboard$/);
   await invitedPage.goto(invitationUrl);
   await invitedPage.getByRole("button", { name: "Accept invitation" }).click();
-  await expect(invitedPage.getByRole("alert")).toBeVisible();
-  await invitedPage.getByRole("link", { name: "Household", exact: true }).click();
+  await expect(invitedPage.locator("main").getByRole("alert")).toBeVisible();
+  await invitedPage.goto("/dashboard/settings");
   await expect(invitedPage.getByText("Only household owners can create invitations.")).toBeVisible();
 
   await page.reload();

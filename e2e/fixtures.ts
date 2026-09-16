@@ -25,7 +25,6 @@ export const test = base.extend<{ users: UserFactory }>({
     const admin = createClient(url, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-    const createdIds: string[] = [];
     const prefix = `${testInfo.project.name}-${testInfo.workerIndex}-${randomUUID()}`;
     const factory: UserFactory = {
       admin,
@@ -43,23 +42,10 @@ export const test = base.extend<{ users: UserFactory }>({
           user_metadata: { display_name: displayName },
         });
         if (error || !data.user) throw new Error(error?.message ?? "Unable to create E2E user.");
-        createdIds.push(data.user.id);
         return { id: data.user.id, email, password, displayName };
       },
     };
     await provide(factory);
-    const { data: remaining } = await admin.auth.admin.listUsers();
-    for (const user of remaining.users.filter((candidate) => candidate.email?.includes(prefix))) {
-      if (!createdIds.includes(user.id)) createdIds.push(user.id);
-    }
-    if (createdIds.length > 0) {
-      const { error } = await admin.from("households").delete().in("created_by", createdIds);
-      if (error) throw new Error(`Unable to clean up E2E households: ${error.message}`);
-    }
-    for (const id of createdIds.reverse()) {
-      const { error } = await admin.auth.admin.deleteUser(id);
-      if (error) throw new Error(`Unable to clean up E2E user ${id}: ${error.message}`);
-    }
   },
 });
 

@@ -1,4 +1,5 @@
 import { PDFDocument } from "pdf-lib";
+import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { test, expect, signIn, createHousehold } from "./fixtures";
 
@@ -37,8 +38,8 @@ test("supported receipt uploads, validation, retry recovery, and private image a
   for (const fixture of fixtures) {
     await page.getByLabel(/Receipt image or PDF/).setInputFiles(fixture);
     await page.getByRole("button", { name: "Upload receipt" }).click();
-    await expect(page.getByText("Receipt uploaded and extracted.")).toBeVisible();
     await expect(page.getByRole("link", { name: fixture.name })).toBeVisible();
+    await expect(page.getByText("Ready for review").first()).toBeVisible();
   }
 
   const { data: retryReceipt } = await users.admin
@@ -48,6 +49,15 @@ test("supported receipt uploads, validation, retry recovery, and private image a
     .eq("original_filename", "receipt.png")
     .single();
   expect(retryReceipt).toBeTruthy();
+  const { error: processingSeedError } = await users.admin
+    .from("receipts")
+    .update({
+      status: "processing",
+      extraction_run_id: randomUUID(),
+      processing_started_at: new Date().toISOString(),
+    })
+    .eq("id", retryReceipt!.id);
+  expect(processingSeedError).toBeNull();
   const { error: retrySeedError } = await users.admin
     .from("receipts")
     .update({
@@ -55,6 +65,8 @@ test("supported receipt uploads, validation, retry recovery, and private image a
       extraction_error: "Temporary extractor failure.",
       extraction_error_code: "temporary",
       extraction_retryable: true,
+      extraction_run_id: null,
+      processing_started_at: null,
     })
     .eq("id", retryReceipt!.id);
   expect(retrySeedError).toBeNull();
@@ -111,13 +123,10 @@ test("supported receipt uploads, validation, retry recovery, and private image a
   expect(revokeError).toBeNull();
   const revokedResponse = await collaboratorPage.request.get(receiptPath!, { maxRedirects: 0 });
   expect(revokedResponse.status()).toBe(404);
-  await collaboratorContext.close();
 
-  const outsiderContext = await browser.newContext();
-  const outsiderPage = await outsiderContext.newPage();
-  await signIn(outsiderPage, outsider);
-  await createHousehold(outsiderPage, "Other home");
-  const deniedResponse = await outsiderPage.request.get(receiptPath!, { maxRedirects: 0 });
+  await signIn(collaboratorPage, outsider);
+  await createHousehold(collaboratorPage, "Other home");
+  const deniedResponse = await collaboratorPage.request.get(receiptPath!, { maxRedirects: 0 });
   expect(deniedResponse.status()).toBe(404);
-  await outsiderContext.close();
+  await collaboratorContext.close();
 });

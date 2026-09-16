@@ -22,11 +22,13 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await page.reload();
   await page.getByLabel("Household").selectOption(secondHouseholdId);
   await page.getByRole("button", { name: "Switch" }).click();
-  await expect(page.getByText("Second home", { exact: true }).first()).toBeVisible();
+  await expect(page.getByLabel("Household")).toHaveValue(secondHouseholdId);
+  await expect(page.locator("main .eyebrow")).toHaveText("Second home");
   const firstHousehold = await users.admin.from("households").select("id").eq("name", "Inventory home").single();
   await page.getByLabel("Household").selectOption(firstHousehold.data!.id);
   await page.getByRole("button", { name: "Switch" }).click();
-  await expect(page.getByText("Inventory home", { exact: true }).first()).toBeVisible();
+  await expect(page.getByLabel("Household")).toHaveValue(firstHousehold.data!.id);
+  await expect(page.locator("main .eyebrow")).toHaveText("Inventory home");
 
   await expect(page.getByText("Your inventory is empty")).toBeVisible();
   await page.getByLabel("Grocery name").fill("Brown rice");
@@ -40,7 +42,7 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await expect(page.getByText("No inventory changes yet.")).toBeVisible();
   await page.getByLabel("Quantity").fill("0");
   await page.getByRole("button", { name: "Record change" }).click();
-  await expect(page.getByRole("alert")).toContainText("non-zero quantity");
+  await expect(page.locator("main").getByRole("alert")).toContainText("non-zero quantity");
 
   await page.getByLabel("Quantity").fill("1000000000000");
   await page.getByRole("button", { name: "Record change" }).click();
@@ -55,7 +57,7 @@ test("onboarding, household switching, inventory validation, idempotency, histor
     (select as HTMLSelectElement).value = "ml";
   });
   await page.getByRole("button", { name: "Record change" }).click();
-  await expect(page.getByRole("alert")).toContainText("not compatible");
+  await expect(page.locator("main").getByRole("alert")).toContainText("not compatible");
 
   await page.getByLabel("Change type").selectOption("adjustment");
   await page.getByLabel("Quantity").fill("1");
@@ -80,7 +82,7 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await page.getByLabel("Change type").selectOption("consumption");
   await page.getByLabel("Quantity").fill("-1");
   await page.getByRole("button", { name: "Record change" }).click();
-  await expect(page.getByRole("alert")).toContainText("positive amount");
+  await expect(page.locator("main").getByRole("alert")).toContainText("positive amount");
 
   await page.getByLabel("Quantity").fill("600");
   await page.getByLabel("Unit").selectOption("g");
