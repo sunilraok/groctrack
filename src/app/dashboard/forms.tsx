@@ -48,7 +48,15 @@ export function GroceryForm() {
 
 export function InventoryChangeForm({ item }: { item: GroceryItem }) {
   const [state, action, pending] = useActionState(recordInventoryChange, null);
-  return <InventoryChangeFormView action={action} item={item} pending={pending} state={state} />;
+  return (
+    <InventoryChangeFormView
+      action={action}
+      completionId={state?.ok ? state.data.completionId : null}
+      item={item}
+      pending={pending}
+      state={state}
+    />
+  );
 }
 
 export function ReverseTransactionForm({

@@ -103,6 +103,7 @@ function InventoryRetryHarness() {
       action={(formData) => {
         void formData;
       }}
+      completionId={state?.ok ? `completion-${attempt}` : null}
       onSubmit={(formData) => {
         const currentAttempt = attempt + 1;
         setAttempt(currentAttempt);

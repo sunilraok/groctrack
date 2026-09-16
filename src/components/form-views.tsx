@@ -118,21 +118,23 @@ export function GroceryFormView({
 
 export function InventoryChangeFormView({
   action,
+  completionId,
   item,
   onSubmit,
   pending,
   state,
 }: {
   action: FormAction;
+  completionId?: string | null;
   item: GroceryItem;
   onSubmit?: (formData: FormData) => void;
   pending: boolean;
-  state: ViewState;
+  state: ViewState<unknown>;
 }) {
   const operationIdRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (state?.ok && operationIdRef.current) operationIdRef.current.value = "";
-  }, [state]);
+    if (completionId && operationIdRef.current) operationIdRef.current.value = "";
+  }, [completionId]);
   const compatibleUnits = Object.entries(unitDefinitions).filter(
     ([, definition]) => definition.dimension === item.unit_dimension,
   ) as Array<[InventoryUnit, (typeof unitDefinitions)[InventoryUnit]]>;
