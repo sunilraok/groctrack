@@ -79,6 +79,7 @@ test("onboarding, household switching, inventory validation, idempotency, histor
     .select("id", { count: "exact", head: true })
     .eq("operation_id", operationId);
   expect(count).toBe(1);
+  await expect(page.locator('input[name="operationId"]')).toHaveValue("");
 
   await page.getByLabel("Change type").selectOption("consumption");
   await page.getByLabel("Quantity").fill("-1");
