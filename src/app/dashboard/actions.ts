@@ -150,9 +150,9 @@ const inventoryChangeSchema = z.object({
 });
 
 export async function recordInventoryChange(
-  _state: FormState<{ completionId: string }>,
+  _state: FormState,
   formData: FormData,
-): Promise<FormState<{ completionId: string }>> {
+): Promise<FormState> {
   const parsed = inventoryChangeSchema.safeParse(Object.fromEntries(formData));
   if (
     !parsed.success ||
@@ -194,7 +194,7 @@ export async function recordInventoryChange(
     if (error) throw new Error(error.message);
     revalidatePath("/dashboard");
     revalidatePath(`/dashboard/items/${parsed.data.groceryItemId}`);
-    return { ok: true, data: { completionId: randomBytes(8).toString("hex") } };
+    return { ok: true, data: undefined };
   } catch (error) {
     return { ok: false, error: getErrorMessage(error) };
   }

@@ -127,12 +127,12 @@ export function InventoryChangeFormView({
   item: GroceryItem;
   onSubmit?: (formData: FormData) => void;
   pending: boolean;
-  state: ViewState<unknown>;
+  state: ViewState;
 }) {
   const operationIdRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (state?.ok && operationIdRef.current) operationIdRef.current.value = "";
-  }, [state?.ok, state?.ok ? state.data : undefined]);
+  }, [state]);
   const compatibleUnits = Object.entries(unitDefinitions).filter(
     ([, definition]) => definition.dimension === item.unit_dimension,
   ) as Array<[InventoryUnit, (typeof unitDefinitions)[InventoryUnit]]>;
@@ -179,7 +179,7 @@ export function ReverseTransactionFormView({
   action: FormAction;
   itemId: string;
   pending: boolean;
-  state: ViewState<unknown>;
+  state: ViewState;
   transaction: InventoryTransaction;
 }) {
   return (

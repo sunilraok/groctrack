@@ -6,6 +6,13 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   const account = await users.create("inventory");
   await signIn(page, account);
   await createHousehold(page, "Inventory home");
+  const { data: firstHousehold, error: firstHouseholdError } = await users.admin
+    .from("households")
+    .select("id")
+    .eq("created_by", account.id)
+    .single();
+  expect(firstHouseholdError).toBeNull();
+  expect(firstHousehold).toBeTruthy();
 
   const secondHouseholdId = randomUUID();
   const { error: householdError } = await users.admin.from("households").insert({
@@ -25,10 +32,9 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await page.getByRole("button", { name: "Switch" }).click();
   await expect(page.getByLabel("Household")).toHaveValue(secondHouseholdId);
   await expect(page.locator("main .eyebrow")).toHaveText("Second home");
-  const firstHousehold = await users.admin.from("households").select("id").eq("name", "Inventory home").single();
-  await page.getByLabel("Household").selectOption(firstHousehold.data!.id);
+  await page.getByLabel("Household").selectOption(firstHousehold!.id);
   await page.getByRole("button", { name: "Switch" }).click();
-  await expect(page.getByLabel("Household")).toHaveValue(firstHousehold.data!.id);
+  await expect(page.getByLabel("Household")).toHaveValue(firstHousehold!.id);
   await expect(page.locator("main .eyebrow")).toHaveText("Inventory home");
 
   await expect(page.getByText("Your inventory is empty")).toBeVisible();
@@ -68,7 +74,10 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await page.locator('input[name="operationId"]').evaluate((input, value) => {
     (input as HTMLInputElement).value = value;
   }, operationId);
-  await page.getByRole("button", { name: "Record change" }).click();
+  const recordButton = page.getByRole("button", { name: "Record change" });
+  await recordButton.click();
+  await expect(page.getByRole("button", { name: "Recording..." })).toBeVisible();
+  await expect(recordButton).toBeVisible();
   await expect(page.getByText("+1 kg")).toBeVisible();
   await page.locator('input[name="operationId"]').evaluate((input, value) => {
     (input as HTMLInputElement).value = value;
@@ -89,9 +98,8 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await page.getByLabel("Quantity").fill("600");
   await page.getByLabel("Unit").selectOption("g");
   await page.getByRole("button", { name: "Record change" }).click();
-  await page.reload();
-  await expect(page.getByText("Low stock")).toBeVisible();
   await expect(page.getByText("-600 g")).toBeVisible();
+  await expect(page.getByText("Low stock")).toBeVisible();
 
   await page.getByRole("button", { name: "Reverse" }).last().click();
   await expect(page.getByText("+600 g")).toBeVisible();
