@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { randomUUID } from "node:crypto";
 import { test, expect, signIn, createHousehold } from "./fixtures";
 
 test("onboarding, household switching, inventory validation, idempotency, history, reversal, and sign out", async ({ page, users }) => {
@@ -6,7 +7,7 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await signIn(page, account);
   await createHousehold(page, "Inventory home");
 
-  const secondHouseholdId = "99999999-9999-4999-8999-999999999999";
+  const secondHouseholdId = randomUUID();
   const { error: householdError } = await users.admin.from("households").insert({
     id: secondHouseholdId,
     name: "Second home",
@@ -63,7 +64,7 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await page.getByLabel("Quantity").fill("1");
   await page.getByLabel("Unit").selectOption("kg");
   await page.getByLabel("Note").fill("Initial stock");
-  const operationId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const operationId = randomUUID();
   await page.locator('input[name="operationId"]').evaluate((input, value) => {
     (input as HTMLInputElement).value = value;
   }, operationId);
@@ -87,6 +88,7 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await page.getByLabel("Quantity").fill("600");
   await page.getByLabel("Unit").selectOption("g");
   await page.getByRole("button", { name: "Record change" }).click();
+  await page.reload();
   await expect(page.getByText("Low stock")).toBeVisible();
   await expect(page.getByText("-600 g")).toBeVisible();
 
