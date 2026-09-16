@@ -82,7 +82,9 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await page.locator('input[name="operationId"]').evaluate((input, value) => {
     (input as HTMLInputElement).value = value;
   }, operationId);
-  await page.getByRole("button", { name: "Record change" }).click();
+  await recordButton.click();
+  await expect(page.getByRole("button", { name: "Recording..." })).toBeVisible();
+  await expect(recordButton).toBeVisible();
   const { count } = await users.admin
     .from("inventory_transactions")
     .select("id", { count: "exact", head: true })
