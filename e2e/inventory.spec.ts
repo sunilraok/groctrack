@@ -106,6 +106,7 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await expect(page.getByText("Low stock")).toBeVisible();
 
   await page.getByRole("button", { name: "Reverse" }).last().click();
+  await page.reload();
   await expect(page.getByText("+600 g")).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
