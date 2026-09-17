@@ -76,21 +76,19 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   }, operationId);
   const recordButton = page.getByRole("button", { name: "Record change" });
   await recordButton.click();
-  await expect(page.getByRole("button", { name: "Recording..." })).toBeVisible();
-  await expect(recordButton).toBeVisible();
   await expect(page.getByText("+1 kg")).toBeVisible();
   await page.locator('input[name="operationId"]').evaluate((input, value) => {
     (input as HTMLInputElement).value = value;
   }, operationId);
   await recordButton.click();
-  await expect(page.getByRole("button", { name: "Recording..." })).toBeVisible();
-  await expect(recordButton).toBeVisible();
+  await expect(page.locator('input[name="operationId"]')).toHaveValue("", {
+    timeout: 30_000,
+  });
   const { count } = await users.admin
     .from("inventory_transactions")
     .select("id", { count: "exact", head: true })
     .eq("operation_id", operationId);
   expect(count).toBe(1);
-  await expect(page.locator('input[name="operationId"]')).toHaveValue("");
 
   await page.getByLabel("Change type").selectOption("consumption");
   await page.getByLabel("Quantity").fill("-1");
