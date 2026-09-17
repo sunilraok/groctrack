@@ -80,6 +80,10 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await page.locator('input[name="operationId"]').evaluate((input, value) => {
     (input as HTMLInputElement).value = value;
   }, operationId);
+  await page.getByLabel("Change type").selectOption("adjustment");
+  await page.getByLabel("Quantity").fill("1");
+  await page.getByLabel("Unit").selectOption("kg");
+  await page.getByLabel("Note").fill("Initial stock");
   await recordButton.click();
   await expect(page.locator('input[name="operationId"]')).toHaveValue("", {
     timeout: 30_000,
