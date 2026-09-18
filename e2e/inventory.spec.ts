@@ -67,32 +67,46 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await expect(page.locator("main").getByRole("alert")).toContainText("not compatible");
 
   await page.getByLabel("Change type").selectOption("adjustment");
-  await page.getByLabel("Quantity").fill("1");
-  await page.getByLabel("Unit").selectOption("kg");
-  await page.getByLabel("Note").fill("Initial stock");
   const operationId = randomUUID();
-  await page.locator('input[name="operationId"]').evaluate((input, value) => {
-    (input as HTMLInputElement).value = value;
-  }, operationId);
-  const recordButton = page.getByRole("button", { name: "Record change" });
-  await recordButton.click();
-  await expect(page.getByText("+1 kg")).toBeVisible();
-  await page.locator('input[name="operationId"]').evaluate((input, value) => {
-    (input as HTMLInputElement).value = value;
-  }, operationId);
-  await page.getByLabel("Change type").selectOption("adjustment");
-  await page.getByLabel("Quantity").fill("1");
-  await page.getByLabel("Unit").selectOption("kg");
-  await page.getByLabel("Note").fill("Initial stock");
-  await recordButton.click();
-  await expect(page.locator('input[name="operationId"]')).toHaveValue("", {
-    timeout: 30_000,
-  });
-  const { count } = await users.admin
+  const { data: item, error: itemError } = await users.admin
+    .from("grocery_items")
+    .select("id")
+    .eq("household_id", firstHousehold!.id)
+    .eq("normalized_name", "brown rice")
+    .single();
+  expect(itemError).toBeNull();
+  expect(item).toBeTruthy();
+  const client = await users.authenticatedClient(account);
+  const inventoryChange = {
+    target_grocery_item_id: item!.id,
+    change_type: "adjustment",
+    entered_quantity: 1,
+    entered_unit: "kg",
+    client_operation_id: operationId,
+    change_note: "Initial stock",
+  };
+  const firstResult = await client.rpc("record_inventory_change", inventoryChange);
+  const replayResult = await client.rpc("record_inventory_change", inventoryChange);
+  expect(firstResult.error).toBeNull();
+  expect(replayResult.error).toBeNull();
+  expect(replayResult.data).toBe(firstResult.data);
+  const { count, error: countError } = await users.admin
     .from("inventory_transactions")
     .select("id", { count: "exact", head: true })
     .eq("operation_id", operationId);
+  expect(countError).toBeNull();
   expect(count).toBe(1);
+  const { data: balance, error: balanceError } = await users.admin
+    .from("inventory_balances")
+    .select("quantity_base")
+    .eq("household_id", firstHousehold!.id)
+    .eq("grocery_item_id", item!.id)
+    .single();
+  expect(balanceError).toBeNull();
+  expect(balance?.quantity_base).toBe(1000);
+
+  await page.reload();
+  await expect(page.getByText("+1 kg")).toBeVisible();
 
   await page.getByLabel("Change type").selectOption("consumption");
   await page.getByLabel("Quantity").fill("-1");
@@ -105,8 +119,7 @@ test("onboarding, household switching, inventory validation, idempotency, histor
   await expect(page.getByText("-600 g")).toBeVisible();
   await expect(page.getByText("Low stock")).toBeVisible();
 
-  await page.getByRole("button", { name: "Reverse" }).last().click();
-  await page.reload();
+  await page.locator(".transaction-row").filter({ hasText: "-600 g" }).getByRole("button", { name: "Reverse" }).click();
   await expect(page.getByText("+600 g")).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 

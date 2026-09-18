@@ -11,6 +11,7 @@ export interface TestAccount {
 
 interface UserFactory {
   admin: SupabaseClient;
+  authenticatedClient(account: TestAccount): Promise<SupabaseClient>;
   create(label?: string): Promise<TestAccount>;
   uniqueEmail(label?: string): string;
 }
@@ -18,8 +19,9 @@ interface UserFactory {
 export const test = base.extend<{ users: UserFactory }>({
   users: async ({}, provide, testInfo) => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !serviceKey) {
+    if (!url || !anonKey || !serviceKey) {
       throw new Error("Run E2E through npm run test:e2e so local Supabase credentials are exported.");
     }
     const admin = createClient(url, serviceKey, {
@@ -28,6 +30,14 @@ export const test = base.extend<{ users: UserFactory }>({
     const prefix = `${testInfo.project.name}-${testInfo.workerIndex}-${randomUUID()}`;
     const factory: UserFactory = {
       admin,
+      async authenticatedClient(account) {
+        const client = createClient(url, anonKey, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        });
+        const { error } = await client.auth.signInWithPassword(account);
+        if (error) throw new Error(error.message);
+        return client;
+      },
       uniqueEmail(label = "user") {
         return `${label}-${prefix}@example.test`;
       },
