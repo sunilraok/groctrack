@@ -2,18 +2,9 @@
 
 import { useActionState } from "react";
 import { acceptInvitation } from "@/app/dashboard/actions";
+import { InviteFormView } from "@/components/form-views";
 
 export function InviteForm({ token }: { token: string }) {
   const [state, action, pending] = useActionState(acceptInvitation, null);
-  return (
-    <form action={action} className="stack">
-      <input name="token" type="hidden" value={token} />
-      {state && !state.ok && (
-        <p className="form-error" role="alert">{state.error}</p>
-      )}
-      <button className="button primary" disabled={pending}>
-        {pending ? "Joining..." : "Accept invitation"}
-      </button>
-    </form>
-  );
+  return <InviteFormView action={action} pending={pending} state={state} token={token} />;
 }

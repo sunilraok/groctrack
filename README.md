@@ -51,6 +51,67 @@ and a unit-aware inventory ledger.
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## Storybook
+
+Storybook uses the official Next.js Vite framework and imports the production
+global styles. Stories render typed presentational screen components and
+production form components without connecting to Supabase or Gemini.
+
+```bash
+# Interactive component development at http://localhost:6006
+npm run storybook
+
+# Deterministic static build
+npm run build-storybook
+
+# Headless Chromium interaction and accessibility checks
+npx playwright install chromium
+npm run test-storybook
+```
+
+Accessibility violations fail story tests. Story interaction tests use only
+local deterministic data. Update a story by changing its fixture data or play
+function; there are no image snapshots or external baselines to update.
+
+## Playwright end-to-end tests
+
+Playwright requires Docker, the Supabase CLI, `jq`, and Chromium:
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+`test:e2e` starts Supabase when necessary, resets it from migrations, exports
+the local API/anon/service-role values for the test process, forces
+`RECEIPT_EXTRACTOR=fake`, starts Next.js at `http://localhost:3000`, and stops Supabase only when the script
+started it. When reusing a running stack, it resets the database again after the
+suite so test users, households, inventory, and receipt objects cannot leak.
+Set `E2E_SKIP_DB_RESET=1` only to skip the initial reset while debugging; final
+cleanup still runs. Set `PLAYWRIGHT_BASE_URL` to use a different local app URL. Never point
+these tests at a hosted Supabase project.
+
+Each test creates confirmed local users with unique emails and removes them
+afterward. Household, inventory, operation, and receipt identifiers are unique
+per test. Browser traces, screenshots, and videos are retained only for failed
+tests and written under ignored `test-results/` and `playwright-report/`
+directories.
+
+The runner checks the Docker database clock before resetting data. If Docker
+Desktop has drifted by more than 30 seconds, restart Docker Desktop; Supabase
+correctly rejects sessions whose JWT appears to have been issued in the future.
+
+```bash
+npm run test:e2e:ui
+npm run test:e2e:debug
+npx playwright show-report
+```
+
+The desktop project runs the complete journey suite. The mobile Chromium
+project runs tagged responsive route and accessibility coverage. Receipt tests
+generate JPEG, PNG, WebP, and PDF inputs in memory and use the deterministic
+fake extractor; no Gemini credentials or network calls are used.
+
 ## Validation
 
 ```bash
@@ -58,6 +119,9 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
+npm run build-storybook
+npm run test-storybook
+npm run test:e2e
 npm audit --omit=dev --audit-level=high
 npx supabase start
 ./scripts/test-inventory-upgrade.sh

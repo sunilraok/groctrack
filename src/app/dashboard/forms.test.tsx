@@ -85,7 +85,7 @@ describe("inventory forms", () => {
       .mockReturnValueOnce(secondId);
     actionMocks.recordInventoryChange
       .mockResolvedValueOnce({ ok: false, error: "retry me" })
-      .mockResolvedValueOnce({ ok: true, data: undefined })
+      .mockResolvedValueOnce({ ok: true, data: { completionId: "completed-1" } })
       .mockResolvedValueOnce({ ok: false, error: "second operation" });
 
     const { container } = render(<InventoryChangeForm item={item} />);
