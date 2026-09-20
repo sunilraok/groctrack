@@ -15,6 +15,7 @@
     "test:e2e": "bash scripts/run-e2e.sh",
     "test:e2e:ui": "bash scripts/run-e2e.sh --ui",
     "test:e2e:debug": "PWDEBUG=1 bash scripts/run-e2e.sh --headed --workers=1",
+    "capture:screenshots": "CAPTURE_DOCS_SCREENSHOTS=1 bash scripts/run-e2e.sh e2e/screenshots.spec.ts --project=desktop-chromium",
     "lint": "eslint",
     "test": "vitest run",
     "test:receipt-integration": "node scripts/receipt-supabase-integration.mjs",
