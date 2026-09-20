@@ -1,9 +1,31 @@
 # GrocTrack
 
-GrocTrack is a Next.js application for shared household grocery inventory. This
-foundation includes the application toolchain, environment validation, a
-tenant-isolated Supabase data model, email authentication, household membership,
-and a unit-aware inventory ledger.
+GrocTrack is a private, shared grocery inventory for households. It keeps stock
+levels, receipt uploads, and household access in one responsive Next.js app
+backed by a tenant-isolated Supabase data model.
+
+- Track grocery quantities across weight, volume, and count units with low-stock
+  indicators and an auditable inventory history.
+- Upload receipt images or PDFs for deterministic extraction and review before
+  they affect inventory.
+- Create private households, invite members by email, and keep every household's
+  data isolated with PostgreSQL row-level security.
+
+## Visual tour
+
+### Welcome and authentication
+
+![GrocTrack landing page introducing shared household grocery inventory](docs/images/landing.png)
+
+![GrocTrack sign-in and account creation screen](docs/images/authentication.png)
+
+### Household inventory
+
+![Populated GrocTrack inventory dashboard with unit-aware quantities and a low-stock item](docs/images/inventory-dashboard.png)
+
+### Receipt review
+
+![GrocTrack receipt upload workflow showing a receipt ready for review](docs/images/receipt-review.png)
 
 ## Prerequisites
 
@@ -104,13 +126,16 @@ correctly rejects sessions whose JWT appears to have been issued in the future.
 ```bash
 npm run test:e2e:ui
 npm run test:e2e:debug
+npm run capture:screenshots
 npx playwright show-report
 ```
 
 The desktop project runs the complete journey suite. The mobile Chromium
 project runs tagged responsive route and accessibility coverage. Receipt tests
 generate JPEG, PNG, WebP, and PDF inputs in memory and use the deterministic
-fake extractor; no Gemini credentials or network calls are used.
+fake extractor; no Gemini credentials or network calls are used. The screenshot
+command uses the same isolated local stack and writes the curated 1440×1000 PNG
+assets under `docs/images/`.
 
 ## Validation
 
